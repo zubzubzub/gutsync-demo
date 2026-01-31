@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Load Demo Data - GutSync</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+  <div class="bg-white rounded-xl p-8 max-w-md w-full shadow-lg text-center">
+    <h1 class="text-2xl font-bold text-gray-900 mb-4">🧪 Demo Data Loader</h1>
+    <p class="text-gray-600 mb-6">
+      This will populate GutSync with 14 days of sample symptom data 
+      to demonstrate the app's features.
+    </p>
+    
+    <div class="space-y-3">
+      <button onclick="loadDemoData()" class="w-full py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition">
+        📊 Load Demo Data
+      </button>
+      
+      <button onclick="clearAllData()" class="w-full py-3 bg-red-100 text-red-600 rounded-lg font-semibold hover:bg-red-200 transition">
+        🗑️ Clear All Data
+      </button>
+      
+      <a href="index.html" class="block w-full py-3 bg-gray-100 text-gray-700 rounded-lg font-semibold hover:bg-gray-200 transition">
+        ← Back to App
+      </a>
+    </div>
+    
+    <div id="status" class="mt-6 text-sm text-gray-500"></div>
+  </div>
+  
+  <script>
+    function loadDemoData() {
+      // Demo user profile
+      const user = {
+        diagnosisDate: '2019-06-15',
+        medications: [
+          'Humira (adalimumab)',
+          'Prednisone',
+          'Mesalamine'
+        ],
+        medPhoto: null,
+        createdAt: new Date().toISOString()
+      };
+      
+      // Generate 14 days of varied symptom data
+      const logs = [];
+      const today = new Date();
+      
+      // Create a realistic pattern with some fluctuation
+      const patterns = [
+        // Good days
+        { bowelCount: 2, bristolType: 4, painLevel: 1, fatigue: 4, extras: [] },
+        { bowelCount: 3, bristolType: 4, painLevel: 2, fatigue: 4, extras: [] },
+        { bowelCount: 2, bristolType: 3, painLevel: 1, fatigue: 5, extras: [] },
+        // Okay days
+        { bowelCount: 4, bristolType: 5, painLevel: 3, fatigue: 3, extras: [] },
+        { bowelCount: 3, bristolType: 5, painLevel: 4, fatigue: 3, extras: ['joint_pain'] },
+        { bowelCount: 4, bristolType: 5, painLevel: 3, fatigue: 3, extras: [] },
+        // Slightly elevated days (simulating mild flare)
+        { bowelCount: 5, bristolType: 6, painLevel: 5, fatigue: 2, extras: ['joint_pain', 'fatigue'] },
+        { bowelCount: 6, bristolType: 6, painLevel: 6, fatigue: 2, extras: ['joint_pain'] },
+        { bowelCount: 5, bristolType: 6, painLevel: 5, fatigue: 2, extras: ['nausea'] },
+        // Recovery
+        { bowelCount: 4, bristolType: 5, painLevel: 4, fatigue: 3, extras: [] },
+        { bowelCount: 3, bristolType: 5, painLevel: 3, fatigue: 3, extras: [] },
+        // Back to good
+        { bowelCount: 3, bristolType: 4, painLevel: 2, fatigue: 4, extras: [] },
+        { bowelCount: 2, bristolType: 4, painLevel: 2, fatigue: 4, extras: [] },
+        { bowelCount: 3, bristolType: 4, painLevel: 1, fatigue: 4, extras: [] }
+      ];
+      
+      for (let i = 13; i >= 0; i--) {
+        const date = new Date(today);
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toISOString().split('T')[0];
+        
+        const pattern = patterns[13 - i];
+        const log = {
+          date: dateStr,
+          timestamp: date.toISOString(),
+          bowelCount: pattern.bowelCount,
+          bristolType: pattern.bristolType,
+          painLevel: pattern.painLevel,
+          painLocation: pattern.painLevel > 3 ? 'rlq' : null,
+          fatigue: pattern.fatigue,
+          medsTaken: Math.random() > 0.15 
+            ? user.medications.slice(0, Math.random() > 0.3 ? 3 : 2)
+            : user.medications.slice(0, 1),
+          extras: pattern.extras,
+          notes: '',
+          hbi: calculateHBI(pattern)
+        };
+        
+        logs.push(log);
+      }
+      
+      function calculateHBI(log) {
+        let score = 0;
+        score += Math.min(4, Math.floor((5 - (log.fatigue || 3)) * 1.33));
+        score += Math.min(3, Math.floor((log.painLevel || 0) / 3.33));
+        score += Math.max(0, (log.bowelCount || 0) - 2);
+        return score;
+      }
+      
+      // Save to localStorage
+      localStorage.setItem('gutsync_user', JSON.stringify(user));
+      localStorage.setItem('gutsync_logs', JSON.stringify(logs));
+      localStorage.setItem('gutsync_onboarded', JSON.stringify(true));
+      
+      document.getElementById('status').innerHTML = `
+        <div class="text-green-600 font-medium">✅ Demo data loaded!</div>
+        <div class="mt-2">14 days of symptom data generated including:</div>
+        <ul class="text-left mt-2 space-y-1">
+          <li>• Mild flare episode (days 7-9)</li>
+          <li>• Recovery pattern (days 10-14)</li>
+          <li>• Varying medication adherence</li>
+          <li>• Joint pain correlation</li>
+        </ul>
+        <a href="index.html" class="inline-block mt-4 text-green-600 font-medium underline">
+          Open App →
+        </a>
+      `;
+    }
+    
+    function clearAllData() {
+      localStorage.removeItem('gutsync_user');
+      localStorage.removeItem('gutsync_logs');
+      localStorage.removeItem('gutsync_onboarded');
+      
+      document.getElementById('status').innerHTML = `
+        <div class="text-red-600 font-medium">🗑️ All data cleared!</div>
+        <a href="index.html" class="inline-block mt-4 text-blue-600 font-medium underline">
+          Start Fresh →
+        </a>
+      `;
+    }
+  </script>
+</body>
+</html>

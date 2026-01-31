@@ -1,0 +1,1275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>GutSync - AI-Powered Crohn's Tracker</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] },
+          colors: {
+            gut: {
+              50: '#f0fdf4', 100: '#dcfce7', 200: '#bbf7d0', 300: '#86efac',
+              400: '#4ade80', 500: '#22c55e', 600: '#16a34a', 700: '#15803d',
+              800: '#166534', 900: '#14532d'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    * { -webkit-tap-highlight-color: transparent; }
+    body { font-family: 'Inter', sans-serif; }
+    .safe-area-bottom { padding-bottom: env(safe-area-inset-bottom, 20px); }
+    @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .slide-up { animation: slideUp 0.3s ease-out; }
+    .fade-in { animation: fadeIn 0.3s ease-out; }
+    .bristol-btn { transition: all 0.15s ease; }
+    .bristol-btn:active { transform: scale(0.95); }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useMemo } = React;
+    
+    // ============ DATA MODELS & STORAGE ============
+    const STORAGE_KEYS = {
+      USER: 'gutsync_user',
+      LOGS: 'gutsync_logs',
+      ONBOARDED: 'gutsync_onboarded'
+    };
+    
+    const loadData = (key, defaultValue) => {
+      try {
+        const data = localStorage.getItem(key);
+        return data ? JSON.parse(data) : defaultValue;
+      } catch { return defaultValue; }
+    };
+    
+    const saveData = (key, data) => {
+      localStorage.setItem(key, JSON.stringify(data));
+    };
+    
+    // Bristol Stool Scale definitions
+    const BRISTOL_SCALE = [
+      { type: 1, name: 'Separate hard lumps', desc: 'Constipation', emoji: '🔴', color: 'bg-red-500' },
+      { type: 2, name: 'Lumpy sausage', desc: 'Mild constipation', emoji: '🟠', color: 'bg-orange-500' },
+      { type: 3, name: 'Cracked sausage', desc: 'Normal', emoji: '🟡', color: 'bg-yellow-500' },
+      { type: 4, name: 'Smooth snake', desc: 'Ideal', emoji: '🟢', color: 'bg-green-500' },
+      { type: 5, name: 'Soft blobs', desc: 'Trending loose', emoji: '🟡', color: 'bg-yellow-500' },
+      { type: 6, name: 'Fluffy, ragged', desc: 'Diarrhea', emoji: '🟠', color: 'bg-orange-500' },
+      { type: 7, name: 'Entirely liquid', desc: 'Severe', emoji: '🔴', color: 'bg-red-500' }
+    ];
+    
+    const EXTRA_SYMPTOMS = [
+      { id: 'joint_pain', label: 'Joint Pain', icon: '🦴' },
+      { id: 'skin_issues', label: 'Skin Issues', icon: '🔴' },
+      { id: 'eye_problems', label: 'Eye Problems', icon: '👁️' },
+      { id: 'nausea', label: 'Nausea', icon: '🤢' },
+      { id: 'mouth_sores', label: 'Mouth Sores', icon: '👄' },
+      { id: 'fever', label: 'Fever', icon: '🌡️' }
+    ];
+    
+    const PAIN_LOCATIONS = [
+      { id: 'rlq', label: 'Right Lower', x: 75, y: 65 },
+      { id: 'llq', label: 'Left Lower', x: 25, y: 65 },
+      { id: 'ruq', label: 'Right Upper', x: 75, y: 35 },
+      { id: 'luq', label: 'Left Upper', x: 25, y: 35 },
+      { id: 'periumbilical', label: 'Around Navel', x: 50, y: 50 },
+      { id: 'epigastric', label: 'Upper Middle', x: 50, y: 25 }
+    ];
+    
+    const DEFAULT_MEDICATIONS = [
+      'Humira (adalimumab)',
+      'Remicade (infliximab)',
+      'Stelara (ustekinumab)',
+      'Entyvio (vedolizumab)',
+      'Prednisone',
+      'Budesonide',
+      'Azathioprine',
+      'Methotrexate',
+      'Mesalamine'
+    ];
+    
+    // ============ AI INSIGHTS ENGINE (Rule-based) ============
+    const generateInsights = (logs, user) => {
+      if (logs.length < 3) {
+        return { status: 'neutral', message: 'Keep logging to unlock AI insights', details: 'We need at least 3 days of data to detect patterns.' };
+      }
+      
+      const recent = logs.slice(-7);
+      const avgPain = recent.reduce((sum, l) => sum + (l.painLevel || 0), 0) / recent.length;
+      const avgBowel = recent.reduce((sum, l) => sum + (l.bowelCount || 0), 0) / recent.length;
+      const looseStools = recent.filter(l => l.bristolType >= 6).length;
+      const avgFatigue = recent.reduce((sum, l) => sum + (5 - (l.fatigue || 3)), 0) / recent.length;
+      
+      // Calculate flare risk score
+      let riskScore = 0;
+      if (avgPain > 5) riskScore += 25;
+      if (avgBowel > 5) riskScore += 20;
+      if (looseStools >= 3) riskScore += 25;
+      if (avgFatigue > 2) riskScore += 15;
+      
+      // Check for trends
+      if (recent.length >= 3) {
+        const lastThree = recent.slice(-3);
+        const painTrend = lastThree[2]?.painLevel - lastThree[0]?.painLevel;
+        if (painTrend > 2) riskScore += 15;
+      }
+      
+      if (riskScore >= 50) {
+        return {
+          status: 'warning',
+          riskLevel: 'elevated',
+          message: 'Elevated symptom activity detected',
+          details: `Your symptoms have been elevated over the past ${recent.length} days. Pain averaging ${avgPain.toFixed(1)}/10 with ${looseStools} days of loose stools. Consider contacting your GI if this continues.`,
+          score: Math.min(riskScore, 100)
+        };
+      } else if (riskScore >= 25) {
+        return {
+          status: 'caution',
+          riskLevel: 'moderate',
+          message: 'Some fluctuation in your symptoms',
+          details: `Mild elevation in symptoms. Keep tracking and stay hydrated. Your average pain is ${avgPain.toFixed(1)}/10.`,
+          score: riskScore
+        };
+      } else {
+        return {
+          status: 'good',
+          riskLevel: 'low',
+          message: 'Your patterns look stable! 💚',
+          details: `Great job managing your symptoms. Pain averaging ${avgPain.toFixed(1)}/10 with ${avgBowel.toFixed(1)} bowel movements/day. Keep it up!`,
+          score: riskScore
+        };
+      }
+    };
+    
+    const calculateHBI = (log) => {
+      // Harvey-Bradshaw Index estimate
+      let score = 0;
+      score += Math.min(4, Math.floor((5 - (log.fatigue || 3)) * 1.33)); // General well-being 0-4
+      score += Math.min(3, Math.floor((log.painLevel || 0) / 3.33)); // Pain 0-3
+      score += Math.max(0, (log.bowelCount || 0) - 2); // Liquid stools beyond 2
+      // Mass and complications not tracked in basic version
+      return score;
+    };
+    
+    // ============ COMPONENTS ============
+    
+    // Welcome/Onboarding Screen
+    const OnboardingFlow = ({ onComplete }) => {
+      const [step, setStep] = useState(0);
+      const [diagnosisDate, setDiagnosisDate] = useState('');
+      const [medications, setMedications] = useState([]);
+      const [customMed, setCustomMed] = useState('');
+      const [medPhoto, setMedPhoto] = useState(null);
+      
+      const handleMedToggle = (med) => {
+        setMedications(prev => 
+          prev.includes(med) ? prev.filter(m => m !== med) : [...prev, med]
+        );
+      };
+      
+      const handlePhotoCapture = (e) => {
+        const file = e.target.files?.[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (e) => setMedPhoto(e.target.result);
+          reader.readAsDataURL(file);
+        }
+      };
+      
+      const finishOnboarding = () => {
+        const userData = {
+          diagnosisDate,
+          medications,
+          medPhoto,
+          createdAt: new Date().toISOString()
+        };
+        saveData(STORAGE_KEYS.USER, userData);
+        saveData(STORAGE_KEYS.ONBOARDED, true);
+        onComplete(userData);
+      };
+      
+      const steps = [
+        // Welcome
+        <div className="flex flex-col items-center justify-center min-h-screen p-6 text-center fade-in">
+          <div className="text-6xl mb-6">🌿</div>
+          <h1 className="text-3xl font-bold text-gray-900 mb-4">Welcome to GutSync</h1>
+          <p className="text-gray-600 mb-8 max-w-md">
+            Your AI-powered companion for managing Crohn's Disease. Track symptoms, 
+            spot patterns, and take control of your health.
+          </p>
+          <div className="space-y-3 text-left max-w-sm mb-8">
+            <div className="flex items-center gap-3"><span className="text-2xl">📊</span><span>Smart symptom tracking</span></div>
+            <div className="flex items-center gap-3"><span className="text-2xl">🤖</span><span>AI-powered flare prediction</span></div>
+            <div className="flex items-center gap-3"><span className="text-2xl">📋</span><span>Doctor-ready reports</span></div>
+          </div>
+          <button 
+            onClick={() => setStep(1)}
+            className="w-full max-w-sm bg-gut-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-gut-700 transition"
+          >
+            Get Started
+          </button>
+        </div>,
+        
+        // Diagnosis Date
+        <div className="flex flex-col min-h-screen p-6 fade-in">
+          <div className="flex-1 flex flex-col justify-center">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">When were you diagnosed?</h2>
+            <p className="text-gray-500 mb-8">This helps us understand your journey.</p>
+            <input 
+              type="date"
+              value={diagnosisDate}
+              onChange={(e) => setDiagnosisDate(e.target.value)}
+              className="w-full p-4 border-2 border-gray-200 rounded-xl text-lg focus:border-gut-500 focus:outline-none"
+            />
+          </div>
+          <button 
+            onClick={() => setStep(2)}
+            disabled={!diagnosisDate}
+            className="w-full bg-gut-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-gut-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
+          >
+            Continue
+          </button>
+        </div>,
+        
+        // Medications
+        <div className="flex flex-col min-h-screen p-6 fade-in">
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Your Medications</h2>
+          <p className="text-gray-500 mb-6">Select all that apply.</p>
+          <div className="flex-1 overflow-auto">
+            <div className="space-y-2 mb-4">
+              {DEFAULT_MEDICATIONS.map(med => (
+                <button
+                  key={med}
+                  onClick={() => handleMedToggle(med)}
+                  className={`w-full p-4 rounded-xl text-left transition flex items-center justify-between ${
+                    medications.includes(med) 
+                      ? 'bg-gut-100 border-2 border-gut-500 text-gut-700' 
+                      : 'bg-white border-2 border-gray-200 text-gray-700'
+                  }`}
+                >
+                  <span>{med}</span>
+                  {medications.includes(med) && <span className="text-gut-600">✓</span>}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-2 mb-4">
+              <input 
+                type="text"
+                placeholder="Add custom medication..."
+                value={customMed}
+                onChange={(e) => setCustomMed(e.target.value)}
+                className="flex-1 p-4 border-2 border-gray-200 rounded-xl focus:border-gut-500 focus:outline-none"
+              />
+              <button 
+                onClick={() => { if (customMed.trim()) { handleMedToggle(customMed.trim()); setCustomMed(''); }}}
+                className="px-6 bg-gray-100 rounded-xl font-medium hover:bg-gray-200 transition"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+          <button 
+            onClick={() => setStep(3)}
+            className="w-full bg-gut-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-gut-700 transition"
+          >
+            Continue
+          </button>
+        </div>,
+        
+        // Medication Photo
+        <div className="flex flex-col min-h-screen p-6 fade-in">
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Medication Photo</h2>
+          <p className="text-gray-500 mb-6">Optional: Snap a photo of your meds for reference.</p>
+          <div className="flex-1 flex flex-col items-center justify-center">
+            {medPhoto ? (
+              <div className="relative w-full max-w-sm">
+                <img src={medPhoto} alt="Medications" className="w-full rounded-xl shadow-lg" />
+                <button 
+                  onClick={() => setMedPhoto(null)}
+                  className="absolute top-2 right-2 bg-white p-2 rounded-full shadow"
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <label className="w-full max-w-sm aspect-square border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-gut-500 transition">
+                <span className="text-5xl mb-4">📷</span>
+                <span className="text-gray-500">Tap to capture</span>
+                <input type="file" accept="image/*" capture="environment" onChange={handlePhotoCapture} className="hidden" />
+              </label>
+            )}
+          </div>
+          <div className="space-y-3">
+            <button 
+              onClick={() => setStep(4)}
+              className="w-full bg-gut-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-gut-700 transition"
+            >
+              {medPhoto ? 'Continue' : 'Skip for Now'}
+            </button>
+          </div>
+        </div>,
+        
+        // Confirmation
+        <div className="flex flex-col items-center justify-center min-h-screen p-6 text-center fade-in">
+          <div className="text-6xl mb-6">🎉</div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">You're All Set!</h2>
+          <p className="text-gray-600 mb-8 max-w-md">
+            GutSync is ready to help you track your symptoms and spot patterns. 
+            Start with your first daily check-in!
+          </p>
+          <div className="bg-gut-50 p-4 rounded-xl mb-8 max-w-sm text-left">
+            <p className="text-sm text-gut-700">
+              <strong>Pro tip:</strong> Log daily for the best insights. 
+              Just 2 minutes a day helps our AI learn your patterns!
+            </p>
+          </div>
+          <button 
+            onClick={finishOnboarding}
+            className="w-full max-w-sm bg-gut-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-gut-700 transition"
+          >
+            Start Tracking
+          </button>
+        </div>
+      ];
+      
+      return steps[step];
+    };
+    
+    // Daily Check-in Screen
+    const DailyCheckin = ({ user, onSave, onCancel, existingLog }) => {
+      const [bowelCount, setBowelCount] = useState(existingLog?.bowelCount || 0);
+      const [bristolType, setBristolType] = useState(existingLog?.bristolType || null);
+      const [painLevel, setPainLevel] = useState(existingLog?.painLevel || 0);
+      const [painLocation, setPainLocation] = useState(existingLog?.painLocation || null);
+      const [fatigue, setFatigue] = useState(existingLog?.fatigue || 3);
+      const [medsTaken, setMedsTaken] = useState(existingLog?.medsTaken || []);
+      const [extras, setExtras] = useState(existingLog?.extras || []);
+      const [notes, setNotes] = useState(existingLog?.notes || '');
+      const [step, setStep] = useState(0);
+      
+      const handleMedToggle = (med) => {
+        setMedsTaken(prev => prev.includes(med) ? prev.filter(m => m !== med) : [...prev, med]);
+      };
+      
+      const handleExtraToggle = (id) => {
+        setExtras(prev => prev.includes(id) ? prev.filter(e => e !== id) : [...prev, id]);
+      };
+      
+      const handleSave = () => {
+        const log = {
+          date: new Date().toISOString().split('T')[0],
+          timestamp: new Date().toISOString(),
+          bowelCount,
+          bristolType,
+          painLevel,
+          painLocation,
+          fatigue,
+          medsTaken,
+          extras,
+          notes,
+          hbi: calculateHBI({ bowelCount, painLevel, fatigue })
+        };
+        onSave(log);
+      };
+      
+      const steps = [
+        // Bowel Movements
+        <div className="space-y-6 fade-in">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Bowel Movements Today</h3>
+            <div className="flex items-center justify-center gap-6">
+              <button 
+                onClick={() => setBowelCount(Math.max(0, bowelCount - 1))}
+                className="w-14 h-14 bg-gray-100 rounded-full text-2xl font-bold text-gray-600 hover:bg-gray-200 transition"
+              >
+                −
+              </button>
+              <span className="text-5xl font-bold text-gut-600 w-16 text-center">{bowelCount}</span>
+              <button 
+                onClick={() => setBowelCount(bowelCount + 1)}
+                className="w-14 h-14 bg-gut-100 rounded-full text-2xl font-bold text-gut-600 hover:bg-gut-200 transition"
+              >
+                +
+              </button>
+            </div>
+          </div>
+          
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Bristol Stool Type</h3>
+            <div className="grid grid-cols-1 gap-2">
+              {BRISTOL_SCALE.map((item) => (
+                <button
+                  key={item.type}
+                  onClick={() => setBristolType(item.type)}
+                  className={`bristol-btn p-3 rounded-xl flex items-center gap-3 ${
+                    bristolType === item.type 
+                      ? 'bg-gut-100 border-2 border-gut-500' 
+                      : 'bg-white border-2 border-gray-200'
+                  }`}
+                >
+                  <div className={`w-8 h-8 rounded-full ${item.color} flex items-center justify-center text-white font-bold`}>
+                    {item.type}
+                  </div>
+                  <div className="text-left">
+                    <div className="font-medium text-gray-900">{item.name}</div>
+                    <div className="text-sm text-gray-500">{item.desc}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>,
+        
+        // Pain Assessment
+        <div className="space-y-6 fade-in">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Pain Level</h3>
+            <p className="text-gray-500 text-sm mb-4">0 = No pain, 10 = Worst pain</p>
+            <div className="flex justify-between mb-2">
+              {[0,1,2,3,4,5,6,7,8,9,10].map(n => (
+                <button
+                  key={n}
+                  onClick={() => setPainLevel(n)}
+                  className={`w-8 h-8 rounded-full text-sm font-medium transition ${
+                    painLevel === n 
+                      ? n <= 3 ? 'bg-green-500 text-white' : n <= 6 ? 'bg-yellow-500 text-white' : 'bg-red-500 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-between text-xs text-gray-400">
+              <span>None</span>
+              <span>Moderate</span>
+              <span>Severe</span>
+            </div>
+          </div>
+          
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Pain Location</h3>
+            <div className="relative w-full max-w-xs mx-auto aspect-[3/4] bg-gray-100 rounded-2xl overflow-hidden">
+              {/* Body outline SVG */}
+              <svg viewBox="0 0 100 133" className="w-full h-full">
+                <ellipse cx="50" cy="15" rx="12" ry="14" fill="#e5e7eb" stroke="#d1d5db" strokeWidth="1"/>
+                <path d="M30 30 L25 80 L35 80 L38 50 L50 55 L62 50 L65 80 L75 80 L70 30 L50 35 Z" fill="#e5e7eb" stroke="#d1d5db" strokeWidth="1"/>
+                <rect x="20" y="80" width="15" height="50" rx="5" fill="#e5e7eb" stroke="#d1d5db" strokeWidth="1"/>
+                <rect x="65" y="80" width="15" height="50" rx="5" fill="#e5e7eb" stroke="#d1d5db" strokeWidth="1"/>
+              </svg>
+              {/* Pain location buttons */}
+              {PAIN_LOCATIONS.map(loc => (
+                <button
+                  key={loc.id}
+                  onClick={() => setPainLocation(loc.id)}
+                  style={{ left: `${loc.x}%`, top: `${loc.y}%` }}
+                  className={`absolute transform -translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full transition ${
+                    painLocation === loc.id 
+                      ? 'bg-red-500 ring-4 ring-red-200' 
+                      : 'bg-red-200 hover:bg-red-300'
+                  }`}
+                />
+              ))}
+            </div>
+            <p className="text-center text-sm text-gray-500 mt-2">
+              {painLocation ? PAIN_LOCATIONS.find(l => l.id === painLocation)?.label : 'Tap where it hurts'}
+            </p>
+          </div>
+        </div>,
+        
+        // Medications & Energy
+        <div className="space-y-6 fade-in">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Medications Taken</h3>
+            <div className="space-y-2">
+              {(user?.medications || []).map(med => (
+                <button
+                  key={med}
+                  onClick={() => handleMedToggle(med)}
+                  className={`w-full p-4 rounded-xl text-left flex items-center justify-between transition ${
+                    medsTaken.includes(med) 
+                      ? 'bg-gut-100 border-2 border-gut-500' 
+                      : 'bg-white border-2 border-gray-200'
+                  }`}
+                >
+                  <span>{med}</span>
+                  <span className={medsTaken.includes(med) ? 'text-gut-600' : 'text-gray-300'}>
+                    {medsTaken.includes(med) ? '✓' : '○'}
+                  </span>
+                </button>
+              ))}
+              {(!user?.medications || user.medications.length === 0) && (
+                <p className="text-gray-500 text-center py-4">No medications set up yet</p>
+              )}
+            </div>
+          </div>
+          
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Energy Level</h3>
+            <div className="flex justify-between gap-2">
+              {[
+                { v: 1, label: 'Exhausted', emoji: '😩' },
+                { v: 2, label: 'Tired', emoji: '😔' },
+                { v: 3, label: 'Okay', emoji: '😐' },
+                { v: 4, label: 'Good', emoji: '🙂' },
+                { v: 5, label: 'Great', emoji: '😊' }
+              ].map(e => (
+                <button
+                  key={e.v}
+                  onClick={() => setFatigue(e.v)}
+                  className={`flex-1 py-4 rounded-xl flex flex-col items-center transition ${
+                    fatigue === e.v 
+                      ? 'bg-gut-100 border-2 border-gut-500' 
+                      : 'bg-white border-2 border-gray-200'
+                  }`}
+                >
+                  <span className="text-2xl">{e.emoji}</span>
+                  <span className="text-xs mt-1 text-gray-600">{e.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>,
+        
+        // Extra Symptoms & Notes
+        <div className="space-y-6 fade-in">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Other Symptoms</h3>
+            <div className="grid grid-cols-2 gap-2">
+              {EXTRA_SYMPTOMS.map(s => (
+                <button
+                  key={s.id}
+                  onClick={() => handleExtraToggle(s.id)}
+                  className={`p-4 rounded-xl flex items-center gap-2 transition ${
+                    extras.includes(s.id) 
+                      ? 'bg-orange-100 border-2 border-orange-400' 
+                      : 'bg-white border-2 border-gray-200'
+                  }`}
+                >
+                  <span className="text-xl">{s.icon}</span>
+                  <span className="text-sm">{s.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Notes (Optional)</h3>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Anything else to note? Food triggers, stress, etc..."
+              className="w-full p-4 border-2 border-gray-200 rounded-xl h-24 resize-none focus:border-gut-500 focus:outline-none"
+            />
+          </div>
+        </div>
+      ];
+      
+      return (
+        <div className="fixed inset-0 bg-white z-50 flex flex-col slide-up">
+          <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+            <button onClick={onCancel} className="text-gray-500 font-medium">Cancel</button>
+            <h2 className="font-semibold">Daily Check-in</h2>
+            <span className="text-sm text-gray-400">{step + 1}/4</span>
+          </div>
+          
+          <div className="flex-1 overflow-auto p-4">
+            {steps[step]}
+          </div>
+          
+          <div className="bg-white border-t border-gray-200 p-4 safe-area-bottom">
+            <div className="flex gap-3">
+              {step > 0 && (
+                <button 
+                  onClick={() => setStep(step - 1)}
+                  className="flex-1 py-4 border-2 border-gray-200 rounded-xl font-semibold text-gray-600 hover:bg-gray-50 transition"
+                >
+                  Back
+                </button>
+              )}
+              <button 
+                onClick={() => step < 3 ? setStep(step + 1) : handleSave()}
+                className="flex-1 py-4 bg-gut-600 text-white rounded-xl font-semibold hover:bg-gut-700 transition"
+              >
+                {step < 3 ? 'Next' : 'Save Log'}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    };
+    
+    // Dashboard
+    const Dashboard = ({ user, logs, onCheckin, onViewInsights, onViewReport }) => {
+      const insights = useMemo(() => generateInsights(logs, user), [logs, user]);
+      const chartRef = useRef(null);
+      const chartInstance = useRef(null);
+      
+      // Calculate stats
+      const todayLog = logs.find(l => l.date === new Date().toISOString().split('T')[0]);
+      const streak = useMemo(() => {
+        let count = 0;
+        const today = new Date();
+        for (let i = 0; i < 30; i++) {
+          const date = new Date(today);
+          date.setDate(date.getDate() - i);
+          const dateStr = date.toISOString().split('T')[0];
+          if (logs.find(l => l.date === dateStr)) count++;
+          else if (i > 0) break;
+        }
+        return count;
+      }, [logs]);
+      
+      const adherence = useMemo(() => {
+        if (!user?.medications?.length || !logs.length) return null;
+        const recent = logs.slice(-7);
+        const totalMeds = recent.length * user.medications.length;
+        const takenMeds = recent.reduce((sum, l) => sum + (l.medsTaken?.length || 0), 0);
+        return Math.round((takenMeds / totalMeds) * 100);
+      }, [logs, user]);
+      
+      // Chart
+      useEffect(() => {
+        if (chartRef.current && logs.length > 0) {
+          if (chartInstance.current) chartInstance.current.destroy();
+          
+          const recentLogs = logs.slice(-14);
+          const ctx = chartRef.current.getContext('2d');
+          
+          chartInstance.current = new Chart(ctx, {
+            type: 'line',
+            data: {
+              labels: recentLogs.map(l => new Date(l.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })),
+              datasets: [
+                {
+                  label: 'Pain Level',
+                  data: recentLogs.map(l => l.painLevel || 0),
+                  borderColor: '#ef4444',
+                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                  tension: 0.4,
+                  fill: true
+                },
+                {
+                  label: 'Bowel Count',
+                  data: recentLogs.map(l => l.bowelCount || 0),
+                  borderColor: '#22c55e',
+                  backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                  tension: 0.4,
+                  fill: true
+                }
+              ]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 15 } } },
+              scales: {
+                y: { beginAtZero: true, max: 10, grid: { color: '#f3f4f6' } },
+                x: { grid: { display: false } }
+              }
+            }
+          });
+        }
+        return () => { if (chartInstance.current) chartInstance.current.destroy(); };
+      }, [logs]);
+      
+      const statusColors = {
+        good: 'bg-green-100 border-green-300 text-green-800',
+        caution: 'bg-yellow-100 border-yellow-300 text-yellow-800',
+        warning: 'bg-red-100 border-red-300 text-red-800',
+        neutral: 'bg-gray-100 border-gray-300 text-gray-800'
+      };
+      
+      return (
+        <div className="pb-24">
+          {/* Header */}
+          <div className="bg-gradient-to-br from-gut-600 to-gut-700 text-white p-6 rounded-b-3xl">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h1 className="text-2xl font-bold">GutSync</h1>
+                <p className="text-gut-200 text-sm">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+              </div>
+              <div className="text-4xl">🌿</div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-3 mt-4">
+              <div className="bg-white/20 rounded-xl p-4">
+                <div className="text-3xl font-bold">{streak}</div>
+                <div className="text-gut-200 text-sm">Day Streak 🔥</div>
+              </div>
+              {adherence !== null && (
+                <div className="bg-white/20 rounded-xl p-4">
+                  <div className="text-3xl font-bold">{adherence}%</div>
+                  <div className="text-gut-200 text-sm">Med Adherence</div>
+                </div>
+              )}
+            </div>
+          </div>
+          
+          {/* AI Insight Card */}
+          <div className="px-4 -mt-4">
+            <div className={`p-4 rounded-xl border-2 ${statusColors[insights.status]}`}>
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="font-semibold">{insights.message}</div>
+                  <p className="text-sm mt-1 opacity-80">{insights.details}</p>
+                </div>
+                <span className="text-2xl">
+                  {insights.status === 'good' ? '💚' : insights.status === 'caution' ? '💛' : insights.status === 'warning' ? '❤️‍🔥' : '🤖'}
+                </span>
+              </div>
+              {insights.score !== undefined && (
+                <button 
+                  onClick={onViewInsights}
+                  className="mt-3 text-sm font-medium underline"
+                >
+                  View detailed insights →
+                </button>
+              )}
+            </div>
+          </div>
+          
+          {/* Quick Log Button */}
+          <div className="px-4 mt-4">
+            <button 
+              onClick={onCheckin}
+              className={`w-full py-4 rounded-xl font-semibold text-lg transition flex items-center justify-center gap-2 ${
+                todayLog 
+                  ? 'bg-gray-100 text-gray-600 hover:bg-gray-200' 
+                  : 'bg-gut-600 text-white hover:bg-gut-700'
+              }`}
+            >
+              {todayLog ? (
+                <>✓ Logged Today — Edit</>
+              ) : (
+                <>📝 Daily Check-in</>
+              )}
+            </button>
+          </div>
+          
+          {/* Trend Chart */}
+          <div className="px-4 mt-6">
+            <h2 className="font-semibold text-gray-900 mb-3">Your Trends</h2>
+            <div className="bg-white rounded-xl p-4 border border-gray-200">
+              {logs.length > 0 ? (
+                <div className="h-48">
+                  <canvas ref={chartRef}></canvas>
+                </div>
+              ) : (
+                <div className="h-48 flex items-center justify-center text-gray-400">
+                  <div className="text-center">
+                    <div className="text-4xl mb-2">📊</div>
+                    <p>Log symptoms to see trends</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          
+          {/* Recent Logs */}
+          <div className="px-4 mt-6">
+            <h2 className="font-semibold text-gray-900 mb-3">Recent Logs</h2>
+            <div className="space-y-2">
+              {logs.slice(-5).reverse().map((log, i) => (
+                <div key={i} className="bg-white rounded-xl p-4 border border-gray-200 flex items-center justify-between">
+                  <div>
+                    <div className="font-medium">{new Date(log.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</div>
+                    <div className="text-sm text-gray-500">
+                      Pain: {log.painLevel}/10 • BM: {log.bowelCount} • Bristol: {log.bristolType || '—'}
+                    </div>
+                  </div>
+                  <div className="text-2xl">
+                    {log.painLevel <= 3 ? '🟢' : log.painLevel <= 6 ? '🟡' : '🔴'}
+                  </div>
+                </div>
+              ))}
+              {logs.length === 0 && (
+                <div className="text-center py-8 text-gray-400">
+                  No logs yet. Start tracking!
+                </div>
+              )}
+            </div>
+          </div>
+          
+          {/* Action Buttons */}
+          <div className="px-4 mt-6 grid grid-cols-2 gap-3">
+            <button 
+              onClick={onViewInsights}
+              className="bg-white border-2 border-gray-200 rounded-xl p-4 text-center hover:bg-gray-50 transition"
+            >
+              <div className="text-2xl mb-1">🤖</div>
+              <div className="font-medium text-gray-900">AI Insights</div>
+            </button>
+            <button 
+              onClick={onViewReport}
+              className="bg-white border-2 border-gray-200 rounded-xl p-4 text-center hover:bg-gray-50 transition"
+            >
+              <div className="text-2xl mb-1">📋</div>
+              <div className="font-medium text-gray-900">Doctor Report</div>
+            </button>
+          </div>
+        </div>
+      );
+    };
+    
+    // Insights Screen
+    const InsightsScreen = ({ logs, user, onBack }) => {
+      const insights = generateInsights(logs, user);
+      const recent = logs.slice(-7);
+      
+      // Calculate various metrics
+      const avgPain = recent.length ? (recent.reduce((s, l) => s + (l.painLevel || 0), 0) / recent.length).toFixed(1) : 0;
+      const avgBowel = recent.length ? (recent.reduce((s, l) => s + (l.bowelCount || 0), 0) / recent.length).toFixed(1) : 0;
+      const avgHBI = recent.length ? (recent.reduce((s, l) => s + (l.hbi || 0), 0) / recent.length).toFixed(1) : 0;
+      const looseDays = recent.filter(l => l.bristolType >= 6).length;
+      
+      // Find patterns
+      const extraCounts = {};
+      recent.forEach(l => (l.extras || []).forEach(e => { extraCounts[e] = (extraCounts[e] || 0) + 1; }));
+      const topExtras = Object.entries(extraCounts).sort((a, b) => b[1] - a[1]).slice(0, 3);
+      
+      return (
+        <div className="min-h-screen bg-gray-50 pb-8">
+          <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center">
+            <button onClick={onBack} className="text-gut-600 font-medium mr-4">← Back</button>
+            <h2 className="font-semibold">AI Insights</h2>
+          </div>
+          
+          <div className="p-4 space-y-4">
+            {/* Flare Risk */}
+            <div className="bg-white rounded-xl p-4 border border-gray-200">
+              <h3 className="font-semibold text-gray-900 mb-3">Flare Risk Indicator</h3>
+              <div className="flex items-center gap-4">
+                <div className={`w-20 h-20 rounded-full flex items-center justify-center text-white text-xl font-bold ${
+                  insights.riskLevel === 'low' ? 'bg-green-500' : 
+                  insights.riskLevel === 'moderate' ? 'bg-yellow-500' : 
+                  insights.riskLevel === 'elevated' ? 'bg-red-500' : 'bg-gray-400'
+                }`}>
+                  {insights.score !== undefined ? `${insights.score}%` : '—'}
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-gray-900">{insights.riskLevel ? insights.riskLevel.charAt(0).toUpperCase() + insights.riskLevel.slice(1) + ' Risk' : 'Calculating...'}</div>
+                  <p className="text-sm text-gray-500">{insights.details}</p>
+                </div>
+              </div>
+            </div>
+            
+            {/* Weekly Summary */}
+            <div className="bg-white rounded-xl p-4 border border-gray-200">
+              <h3 className="font-semibold text-gray-900 mb-3">7-Day Summary</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="text-center p-3 bg-gray-50 rounded-lg">
+                  <div className="text-2xl font-bold text-gray-900">{avgPain}</div>
+                  <div className="text-sm text-gray-500">Avg Pain</div>
+                </div>
+                <div className="text-center p-3 bg-gray-50 rounded-lg">
+                  <div className="text-2xl font-bold text-gray-900">{avgBowel}</div>
+                  <div className="text-sm text-gray-500">Avg BM/Day</div>
+                </div>
+                <div className="text-center p-3 bg-gray-50 rounded-lg">
+                  <div className="text-2xl font-bold text-gray-900">{looseDays}</div>
+                  <div className="text-sm text-gray-500">Loose Stool Days</div>
+                </div>
+                <div className="text-center p-3 bg-gray-50 rounded-lg">
+                  <div className="text-2xl font-bold text-gray-900">{avgHBI}</div>
+                  <div className="text-sm text-gray-500">Avg HBI Score</div>
+                </div>
+              </div>
+            </div>
+            
+            {/* Pattern Detection */}
+            <div className="bg-white rounded-xl p-4 border border-gray-200">
+              <h3 className="font-semibold text-gray-900 mb-3">Detected Patterns</h3>
+              {topExtras.length > 0 ? (
+                <div className="space-y-2">
+                  {topExtras.map(([id, count]) => {
+                    const symptom = EXTRA_SYMPTOMS.find(s => s.id === id);
+                    return symptom ? (
+                      <div key={id} className="flex items-center justify-between p-2 bg-orange-50 rounded-lg">
+                        <span>{symptom.icon} {symptom.label}</span>
+                        <span className="text-sm text-gray-500">{count} days this week</span>
+                      </div>
+                    ) : null;
+                  })}
+                  <p className="text-sm text-gray-500 mt-2">
+                    💡 These extra symptoms appeared frequently. Track food and stress to find correlations.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-gray-500">Not enough data to detect patterns yet. Keep logging!</p>
+              )}
+            </div>
+            
+            {/* Mock Integrations */}
+            <div className="bg-white rounded-xl p-4 border border-gray-200">
+              <h3 className="font-semibold text-gray-900 mb-3">Health Integrations</h3>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between p-3 border border-dashed border-gray-300 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">⌚</span>
+                    <div>
+                      <div className="font-medium">Apple Health</div>
+                      <div className="text-sm text-gray-500">HRV, Sleep, Activity</div>
+                    </div>
+                  </div>
+                  <button className="text-gut-600 font-medium text-sm">Connect</button>
+                </div>
+                <div className="flex items-center justify-between p-3 border border-dashed border-gray-300 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">💪</span>
+                    <div>
+                      <div className="font-medium">WHOOP</div>
+                      <div className="text-sm text-gray-500">Recovery Score, Strain</div>
+                    </div>
+                  </div>
+                  <button className="text-gut-600 font-medium text-sm">Connect</button>
+                </div>
+              </div>
+              <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                <p className="text-sm text-blue-800">
+                  <strong>Coming Soon:</strong> Connect wearables to detect flares 24-72 hours earlier using HRV and sleep patterns.
+                </p>
+              </div>
+            </div>
+            
+            {/* Mock Biometric Data */}
+            <div className="bg-white rounded-xl p-4 border border-gray-200">
+              <h3 className="font-semibold text-gray-900 mb-3">Biometric Trends (Demo)</h3>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="text-center p-3 bg-purple-50 rounded-lg">
+                  <div className="text-xl font-bold text-purple-700">45ms</div>
+                  <div className="text-xs text-gray-500">Avg HRV</div>
+                </div>
+                <div className="text-center p-3 bg-blue-50 rounded-lg">
+                  <div className="text-xl font-bold text-blue-700">7.2h</div>
+                  <div className="text-xs text-gray-500">Avg Sleep</div>
+                </div>
+                <div className="text-center p-3 bg-green-50 rounded-lg">
+                  <div className="text-xl font-bold text-green-700">65%</div>
+                  <div className="text-xs text-gray-500">Recovery</div>
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 mt-2 text-center">(Mock data for demo purposes)</p>
+            </div>
+          </div>
+        </div>
+      );
+    };
+    
+    // Doctor Report Screen
+    const DoctorReport = ({ logs, user, onBack }) => {
+      const [dateRange, setDateRange] = useState(30);
+      const [generating, setGenerating] = useState(false);
+      
+      const filteredLogs = useMemo(() => {
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - dateRange);
+        return logs.filter(l => new Date(l.date) >= cutoff);
+      }, [logs, dateRange]);
+      
+      const stats = useMemo(() => {
+        if (!filteredLogs.length) return null;
+        return {
+          avgPain: (filteredLogs.reduce((s, l) => s + (l.painLevel || 0), 0) / filteredLogs.length).toFixed(1),
+          avgBowel: (filteredLogs.reduce((s, l) => s + (l.bowelCount || 0), 0) / filteredLogs.length).toFixed(1),
+          avgHBI: (filteredLogs.reduce((s, l) => s + (l.hbi || 0), 0) / filteredLogs.length).toFixed(1),
+          totalLogs: filteredLogs.length,
+          looseDays: filteredLogs.filter(l => l.bristolType >= 6).length,
+          highPainDays: filteredLogs.filter(l => l.painLevel >= 7).length,
+          adherence: user?.medications?.length 
+            ? Math.round((filteredLogs.reduce((s, l) => s + (l.medsTaken?.length || 0), 0) / (filteredLogs.length * user.medications.length)) * 100)
+            : null
+        };
+      }, [filteredLogs, user]);
+      
+      const generatePDF = () => {
+        setGenerating(true);
+        
+        // Create a simple text report (in production, use jsPDF)
+        const report = `
+╔══════════════════════════════════════════════════════════════╗
+║                    GUTSYNC PATIENT REPORT                     ║
+║                  Crohn's Disease Symptom Summary              ║
+╚══════════════════════════════════════════════════════════════╝
+
+PATIENT INFORMATION
+───────────────────────────────────────────────────────────────
+Diagnosis Date: ${user?.diagnosisDate || 'Not specified'}
+Report Period: Last ${dateRange} days
+Generated: ${new Date().toLocaleDateString()}
+
+SUMMARY STATISTICS
+───────────────────────────────────────────────────────────────
+Total Logs: ${stats?.totalLogs || 0} entries
+Average Pain Level: ${stats?.avgPain || 0}/10
+Average Bowel Movements: ${stats?.avgBowel || 0}/day
+Average Harvey-Bradshaw Index: ${stats?.avgHBI || 0}
+Days with Loose Stools (Bristol 6-7): ${stats?.looseDays || 0}
+Days with High Pain (≥7): ${stats?.highPainDays || 0}
+${stats?.adherence !== null ? `Medication Adherence: ${stats.adherence}%` : ''}
+
+MEDICATIONS
+───────────────────────────────────────────────────────────────
+${(user?.medications || []).join('\n') || 'None recorded'}
+
+HARVEY-BRADSHAW INDEX INTERPRETATION
+───────────────────────────────────────────────────────────────
+• Score < 5: Remission
+• Score 5-7: Mild disease
+• Score 8-16: Moderate disease  
+• Score > 16: Severe disease
+Patient Average: ${stats?.avgHBI || 0}
+
+───────────────────────────────────────────────────────────────
+Generated by GutSync - AI-Powered Crohn's Tracker
+This report is for informational purposes and should be 
+reviewed with your healthcare provider.
+        `.trim();
+        
+        // Create download
+        setTimeout(() => {
+          const blob = new Blob([report], { type: 'text/plain' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `GutSync_Report_${new Date().toISOString().split('T')[0]}.txt`;
+          a.click();
+          URL.revokeObjectURL(url);
+          setGenerating(false);
+        }, 1000);
+      };
+      
+      return (
+        <div className="min-h-screen bg-gray-50 pb-8">
+          <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center">
+            <button onClick={onBack} className="text-gut-600 font-medium mr-4">← Back</button>
+            <h2 className="font-semibold">Doctor Report</h2>
+          </div>
+          
+          <div className="p-4 space-y-4">
+            {/* Date Range */}
+            <div className="bg-white rounded-xl p-4 border border-gray-200">
+              <h3 className="font-semibold text-gray-900 mb-3">Report Period</h3>
+              <div className="flex gap-2">
+                {[7, 14, 30, 90].map(d => (
+                  <button
+                    key={d}
+                    onClick={() => setDateRange(d)}
+                    className={`flex-1 py-2 rounded-lg font-medium transition ${
+                      dateRange === d 
+                        ? 'bg-gut-600 text-white' 
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    {d}d
+                  </button>
+                ))}
+              </div>
+            </div>
+            
+            {/* Preview */}
+            {stats ? (
+              <div className="bg-white rounded-xl p-4 border border-gray-200">
+                <h3 className="font-semibold text-gray-900 mb-3">Report Preview</h3>
+                <div className="space-y-3">
+                  <div className="flex justify-between py-2 border-b border-gray-100">
+                    <span className="text-gray-600">Logs Recorded</span>
+                    <span className="font-medium">{stats.totalLogs}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-gray-100">
+                    <span className="text-gray-600">Avg Pain Level</span>
+                    <span className="font-medium">{stats.avgPain}/10</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-gray-100">
+                    <span className="text-gray-600">Avg BM/Day</span>
+                    <span className="font-medium">{stats.avgBowel}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-gray-100">
+                    <span className="text-gray-600">Avg HBI Score</span>
+                    <span className={`font-medium ${
+                      stats.avgHBI < 5 ? 'text-green-600' : 
+                      stats.avgHBI < 8 ? 'text-yellow-600' : 'text-red-600'
+                    }`}>
+                      {stats.avgHBI} ({stats.avgHBI < 5 ? 'Remission' : stats.avgHBI < 8 ? 'Mild' : 'Moderate'})
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-gray-100">
+                    <span className="text-gray-600">Loose Stool Days</span>
+                    <span className="font-medium">{stats.looseDays}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-gray-100">
+                    <span className="text-gray-600">High Pain Days</span>
+                    <span className="font-medium">{stats.highPainDays}</span>
+                  </div>
+                  {stats.adherence !== null && (
+                    <div className="flex justify-between py-2">
+                      <span className="text-gray-600">Med Adherence</span>
+                      <span className={`font-medium ${stats.adherence >= 80 ? 'text-green-600' : 'text-orange-600'}`}>
+                        {stats.adherence}%
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl p-8 border border-gray-200 text-center text-gray-500">
+                <div className="text-4xl mb-2">📊</div>
+                <p>No data in selected period</p>
+              </div>
+            )}
+            
+            {/* HBI Info */}
+            <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
+              <h4 className="font-semibold text-blue-900 mb-2">About Harvey-Bradshaw Index</h4>
+              <p className="text-sm text-blue-800 mb-2">
+                The HBI is a simplified clinical index used by gastroenterologists to assess Crohn's disease activity.
+              </p>
+              <div className="text-sm text-blue-700 space-y-1">
+                <div>• &lt;5: Remission</div>
+                <div>• 5-7: Mild disease</div>
+                <div>• 8-16: Moderate disease</div>
+                <div>• &gt;16: Severe disease</div>
+              </div>
+            </div>
+            
+            {/* Generate Button */}
+            <button
+              onClick={generatePDF}
+              disabled={!stats || generating}
+              className="w-full py-4 bg-gut-600 text-white rounded-xl font-semibold hover:bg-gut-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {generating ? (
+                <>⏳ Generating...</>
+              ) : (
+                <>📥 Download Report</>
+              )}
+            </button>
+            
+            <p className="text-sm text-gray-500 text-center">
+              Share this report with your GI doctor to review your symptom patterns.
+            </p>
+          </div>
+        </div>
+      );
+    };
+    
+    // Bottom Navigation
+    const BottomNav = ({ active, onNavigate }) => (
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 safe-area-bottom">
+        <div className="flex justify-around py-2">
+          {[
+            { id: 'dashboard', icon: '🏠', label: 'Home' },
+            { id: 'insights', icon: '🤖', label: 'Insights' },
+            { id: 'report', icon: '📋', label: 'Report' }
+          ].map(item => (
+            <button
+              key={item.id}
+              onClick={() => onNavigate(item.id)}
+              className={`flex flex-col items-center py-2 px-4 ${
+                active === item.id ? 'text-gut-600' : 'text-gray-400'
+              }`}
+            >
+              <span className="text-xl">{item.icon}</span>
+              <span className="text-xs mt-1">{item.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+    
+    // Main App
+    const App = () => {
+      const [isOnboarded, setIsOnboarded] = useState(() => loadData(STORAGE_KEYS.ONBOARDED, false));
+      const [user, setUser] = useState(() => loadData(STORAGE_KEYS.USER, null));
+      const [logs, setLogs] = useState(() => loadData(STORAGE_KEYS.LOGS, []));
+      const [screen, setScreen] = useState('dashboard');
+      const [showCheckin, setShowCheckin] = useState(false);
+      
+      const handleOnboardingComplete = (userData) => {
+        setUser(userData);
+        setIsOnboarded(true);
+      };
+      
+      const handleSaveLog = (log) => {
+        const existingIndex = logs.findIndex(l => l.date === log.date);
+        let newLogs;
+        if (existingIndex >= 0) {
+          newLogs = [...logs];
+          newLogs[existingIndex] = log;
+        } else {
+          newLogs = [...logs, log];
+        }
+        newLogs.sort((a, b) => new Date(a.date) - new Date(b.date));
+        setLogs(newLogs);
+        saveData(STORAGE_KEYS.LOGS, newLogs);
+        setShowCheckin(false);
+      };
+      
+      const todayLog = logs.find(l => l.date === new Date().toISOString().split('T')[0]);
+      
+      if (!isOnboarded) {
+        return <OnboardingFlow onComplete={handleOnboardingComplete} />;
+      }
+      
+      return (
+        <div className="min-h-screen bg-gray-50">
+          {showCheckin && (
+            <DailyCheckin 
+              user={user} 
+              onSave={handleSaveLog} 
+              onCancel={() => setShowCheckin(false)}
+              existingLog={todayLog}
+            />
+          )}
+          
+          {screen === 'dashboard' && (
+            <Dashboard 
+              user={user} 
+              logs={logs} 
+              onCheckin={() => setShowCheckin(true)}
+              onViewInsights={() => setScreen('insights')}
+              onViewReport={() => setScreen('report')}
+            />
+          )}
+          
+          {screen === 'insights' && (
+            <InsightsScreen 
+              logs={logs} 
+              user={user} 
+              onBack={() => setScreen('dashboard')}
+            />
+          )}
+          
+          {screen === 'report' && (
+            <DoctorReport 
+              logs={logs} 
+              user={user} 
+              onBack={() => setScreen('dashboard')}
+            />
+          )}
+          
+          <BottomNav active={screen} onNavigate={setScreen} />
+        </div>
+      );
+    };
+    
+    // Render
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
