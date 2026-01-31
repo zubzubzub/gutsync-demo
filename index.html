@@ -32,17 +32,21 @@
     .safe-area-bottom { padding-bottom: env(safe-area-inset-bottom, 20px); }
     @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes pulse-ring { 0% { transform: scale(0.95); opacity: 0.8; } 50% { transform: scale(1.05); opacity: 0.4; } 100% { transform: scale(0.95); opacity: 0.8; } }
+    @keyframes mic-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
     .slide-up { animation: slideUp 0.3s ease-out; }
     .fade-in { animation: fadeIn 0.3s ease-out; }
     .bristol-btn { transition: all 0.15s ease; }
     .bristol-btn:active { transform: scale(0.95); }
+    .voice-btn-ring { animation: pulse-ring 2s ease-in-out infinite; }
+    .mic-recording { animation: mic-pulse 1s ease-in-out infinite; }
   </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
   <div id="root"></div>
   
   <script type="text/babel">
-    const { useState, useEffect, useRef, useMemo } = React;
+    const { useState, useEffect, useRef, useMemo, useCallback } = React;
     
     // ============ DATA MODELS & STORAGE ============
     const STORAGE_KEYS = {
@@ -79,7 +83,11 @@
       { id: 'eye_problems', label: 'Eye Problems', icon: '👁️' },
       { id: 'nausea', label: 'Nausea', icon: '🤢' },
       { id: 'mouth_sores', label: 'Mouth Sores', icon: '👄' },
-      { id: 'fever', label: 'Fever', icon: '🌡️' }
+      { id: 'fever', label: 'Fever', icon: '🌡️' },
+      { id: 'fatigue', label: 'Fatigue', icon: '😴' },
+      { id: 'bloating', label: 'Bloating', icon: '🎈' },
+      { id: 'cramping', label: 'Cramping', icon: '💢' },
+      { id: 'blood', label: 'Blood in stool', icon: '🩸' }
     ];
     
     const PAIN_LOCATIONS = [
@@ -106,7 +114,13 @@
     // ============ AI INSIGHTS ENGINE (Rule-based) ============
     const generateInsights = (logs, user) => {
       if (logs.length < 3) {
-        return { status: 'neutral', message: 'Keep logging to unlock AI insights', details: 'We need at least 3 days of data to detect patterns.' };
+        return { 
+          status: 'neutral', 
+          message: 'Keep logging to unlock AI insights', 
+          details: 'We need at least 3 days of data to detect patterns.',
+          riskPercent: null,
+          riskLevel: null
+        };
       }
       
       const recent = logs.slice(-7);
@@ -115,43 +129,57 @@
       const looseStools = recent.filter(l => l.bristolType >= 6).length;
       const avgFatigue = recent.reduce((sum, l) => sum + (5 - (l.fatigue || 3)), 0) / recent.length;
       
-      // Calculate flare risk score
+      // Calculate flare risk score (as percentage for 24-72 hour prediction window)
       let riskScore = 0;
       if (avgPain > 5) riskScore += 25;
-      if (avgBowel > 5) riskScore += 20;
-      if (looseStools >= 3) riskScore += 25;
+      else if (avgPain > 3) riskScore += 12;
+      if (avgBowel > 6) riskScore += 20;
+      else if (avgBowel > 4) riskScore += 10;
+      if (looseStools >= 4) riskScore += 30;
+      else if (looseStools >= 2) riskScore += 15;
       if (avgFatigue > 2) riskScore += 15;
+      else if (avgFatigue > 1) riskScore += 8;
       
-      // Check for trends
+      // Check for trends (rising symptoms = higher risk)
       if (recent.length >= 3) {
         const lastThree = recent.slice(-3);
         const painTrend = lastThree[2]?.painLevel - lastThree[0]?.painLevel;
         if (painTrend > 2) riskScore += 15;
+        else if (painTrend > 0) riskScore += 5;
+        
+        const bowelTrend = lastThree[2]?.bowelCount - lastThree[0]?.bowelCount;
+        if (bowelTrend > 2) riskScore += 10;
       }
       
-      if (riskScore >= 50) {
+      // Clamp to realistic clinical ranges
+      const riskPercent = Math.min(Math.max(riskScore, 5), 85);
+      
+      if (riskPercent >= 50) {
         return {
           status: 'warning',
-          riskLevel: 'elevated',
-          message: 'Elevated symptom activity detected',
-          details: `Your symptoms have been elevated over the past ${recent.length} days. Pain averaging ${avgPain.toFixed(1)}/10 with ${looseStools} days of loose stools. Consider contacting your GI if this continues.`,
-          score: Math.min(riskScore, 100)
+          riskLevel: 'high',
+          riskPercent,
+          message: 'Elevated flare risk detected',
+          details: `Your symptoms suggest ${riskPercent}% chance of a flare in the next 24-72 hours. Pain averaging ${avgPain.toFixed(1)}/10 with ${looseStools} days of loose stools.`,
+          recommendation: 'Contact your GI, prepare flare kit, rest and hydrate'
         };
-      } else if (riskScore >= 25) {
+      } else if (riskPercent >= 25) {
         return {
           status: 'caution',
-          riskLevel: 'moderate',
-          message: 'Some fluctuation in your symptoms',
-          details: `Mild elevation in symptoms. Keep tracking and stay hydrated. Your average pain is ${avgPain.toFixed(1)}/10.`,
-          score: riskScore
+          riskLevel: 'medium',
+          riskPercent,
+          message: 'Moderate symptom activity',
+          details: `${riskPercent}% flare risk in next 24-72 hours. Average pain ${avgPain.toFixed(1)}/10. Monitor closely.`,
+          recommendation: 'Monitor closely, consider reducing stress, stay hydrated'
         };
       } else {
         return {
           status: 'good',
           riskLevel: 'low',
-          message: 'Your patterns look stable! 💚',
-          details: `Great job managing your symptoms. Pain averaging ${avgPain.toFixed(1)}/10 with ${avgBowel.toFixed(1)} bowel movements/day. Keep it up!`,
-          score: riskScore
+          riskPercent,
+          message: 'Looking good! Low flare risk 💚',
+          details: `Only ${riskPercent}% flare risk. Pain averaging ${avgPain.toFixed(1)}/10 with ${avgBowel.toFixed(1)} BM/day.`,
+          recommendation: 'Continue tracking, stay hydrated, maintain routine'
         };
       }
     };
@@ -162,19 +190,147 @@
       score += Math.min(4, Math.floor((5 - (log.fatigue || 3)) * 1.33)); // General well-being 0-4
       score += Math.min(3, Math.floor((log.painLevel || 0) / 3.33)); // Pain 0-3
       score += Math.max(0, (log.bowelCount || 0) - 2); // Liquid stools beyond 2
-      // Mass and complications not tracked in basic version
       return score;
+    };
+    
+    // Find last flare (defined as high pain + high bowel count day)
+    const findLastFlare = (logs) => {
+      const sortedLogs = [...logs].sort((a, b) => new Date(b.date) - new Date(a.date));
+      for (const log of sortedLogs) {
+        if ((log.painLevel >= 6 && log.bowelCount >= 5) || log.bristolType >= 6 && log.painLevel >= 5) {
+          const flareDate = new Date(log.date);
+          const today = new Date();
+          const diffTime = today - flareDate;
+          const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+          return { date: log.date, daysAgo: diffDays };
+        }
+      }
+      return null;
+    };
+    
+    // ============ VOICE RECOGNITION ============
+    const useVoiceRecognition = () => {
+      const [isListening, setIsListening] = useState(false);
+      const [transcript, setTranscript] = useState('');
+      const [isSupported, setIsSupported] = useState(false);
+      const recognitionRef = useRef(null);
+      
+      useEffect(() => {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+          setIsSupported(true);
+          recognitionRef.current = new SpeechRecognition();
+          recognitionRef.current.continuous = false;
+          recognitionRef.current.interimResults = true;
+          recognitionRef.current.lang = 'en-US';
+          
+          recognitionRef.current.onresult = (event) => {
+            let finalTranscript = '';
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+              if (event.results[i].isFinal) {
+                finalTranscript += event.results[i][0].transcript;
+              }
+            }
+            if (finalTranscript) {
+              setTranscript(finalTranscript);
+            }
+          };
+          
+          recognitionRef.current.onend = () => {
+            setIsListening(false);
+          };
+          
+          recognitionRef.current.onerror = (event) => {
+            console.error('Speech recognition error:', event.error);
+            setIsListening(false);
+          };
+        }
+      }, []);
+      
+      const startListening = useCallback(() => {
+        if (recognitionRef.current && !isListening) {
+          setTranscript('');
+          recognitionRef.current.start();
+          setIsListening(true);
+        }
+      }, [isListening]);
+      
+      const stopListening = useCallback(() => {
+        if (recognitionRef.current && isListening) {
+          recognitionRef.current.stop();
+          setIsListening(false);
+        }
+      }, [isListening]);
+      
+      return { isListening, transcript, isSupported, startListening, stopListening, setTranscript };
+    };
+    
+    // Parse voice transcript into symptom data
+    const parseVoiceInput = (transcript) => {
+      const text = transcript.toLowerCase();
+      const result = {
+        painLevel: null,
+        bowelCount: null,
+        bristolType: null,
+        extras: [],
+        notes: transcript
+      };
+      
+      // Pain level parsing
+      const painMatch = text.match(/pain.{0,10}(\d+)|(\d+).{0,10}(out of|\/)\s*10|level.{0,5}(\d+)/);
+      if (painMatch) {
+        const num = parseInt(painMatch[1] || painMatch[2] || painMatch[4]);
+        if (num >= 0 && num <= 10) result.painLevel = num;
+      }
+      if (text.includes('no pain') || text.includes('feeling good') || text.includes('feeling great')) result.painLevel = result.painLevel || 1;
+      if (text.includes('mild pain') || text.includes('little pain')) result.painLevel = result.painLevel || 3;
+      if (text.includes('moderate pain')) result.painLevel = result.painLevel || 5;
+      if (text.includes('severe pain') || text.includes('bad pain') || text.includes('really hurts')) result.painLevel = result.painLevel || 7;
+      if (text.includes('worst pain') || text.includes('terrible')) result.painLevel = result.painLevel || 9;
+      
+      // Bowel movements
+      const bmMatch = text.match(/(\d+)\s*(bowel|bm|bathroom|times|movements?)/);
+      if (bmMatch) {
+        result.bowelCount = parseInt(bmMatch[1]);
+      }
+      if (text.includes('went once') || text.includes('one time')) result.bowelCount = result.bowelCount || 1;
+      if (text.includes('went twice') || text.includes('two times')) result.bowelCount = result.bowelCount || 2;
+      if (text.includes('three times')) result.bowelCount = result.bowelCount || 3;
+      if (text.includes('many times') || text.includes('lot')) result.bowelCount = result.bowelCount || 5;
+      
+      // Bristol type
+      if (text.includes('liquid') || text.includes('watery')) result.bristolType = 7;
+      else if (text.includes('loose') || text.includes('soft')) result.bristolType = 6;
+      else if (text.includes('normal') || text.includes('formed')) result.bristolType = 4;
+      else if (text.includes('hard') || text.includes('constipated')) result.bristolType = 2;
+      
+      // Extra symptoms
+      if (text.includes('joint') || text.includes('joints hurt')) result.extras.push('joint_pain');
+      if (text.includes('skin') || text.includes('rash')) result.extras.push('skin_issues');
+      if (text.includes('eye') || text.includes('eyes')) result.extras.push('eye_problems');
+      if (text.includes('nausea') || text.includes('nauseous') || text.includes('queasy')) result.extras.push('nausea');
+      if (text.includes('mouth sore') || text.includes('ulcer')) result.extras.push('mouth_sores');
+      if (text.includes('fever') || text.includes('temperature')) result.extras.push('fever');
+      if (text.includes('tired') || text.includes('fatigue') || text.includes('exhausted')) result.extras.push('fatigue');
+      if (text.includes('bloat') || text.includes('bloating')) result.extras.push('bloating');
+      if (text.includes('cramp') || text.includes('cramping')) result.extras.push('cramping');
+      if (text.includes('blood')) result.extras.push('blood');
+      
+      return result;
     };
     
     // ============ COMPONENTS ============
     
-    // Welcome/Onboarding Screen
+    // Single-Page Onboarding
     const OnboardingFlow = ({ onComplete }) => {
-      const [step, setStep] = useState(0);
-      const [diagnosisDate, setDiagnosisDate] = useState('');
-      const [medications, setMedications] = useState([]);
+      // Pre-populate with demo data
+      const twoYearsAgo = new Date();
+      twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+      const defaultDate = twoYearsAgo.toISOString().split('T')[0];
+      
+      const [diagnosisDate, setDiagnosisDate] = useState(defaultDate);
+      const [medications, setMedications] = useState(['Humira (adalimumab)', 'Prednisone']);
       const [customMed, setCustomMed] = useState('');
-      const [medPhoto, setMedPhoto] = useState(null);
       
       const handleMedToggle = (med) => {
         setMedications(prev => 
@@ -182,466 +338,514 @@
         );
       };
       
-      const handlePhotoCapture = (e) => {
-        const file = e.target.files?.[0];
-        if (file) {
-          const reader = new FileReader();
-          reader.onload = (e) => setMedPhoto(e.target.result);
-          reader.readAsDataURL(file);
-        }
-      };
-      
       const finishOnboarding = () => {
         const userData = {
           diagnosisDate,
           medications,
-          medPhoto,
           createdAt: new Date().toISOString()
         };
         saveData(STORAGE_KEYS.USER, userData);
         saveData(STORAGE_KEYS.ONBOARDED, true);
-        onComplete(userData);
+        
+        // Add some demo log data for a better first experience
+        const demoLogs = generateDemoLogs();
+        saveData(STORAGE_KEYS.LOGS, demoLogs);
+        
+        onComplete(userData, demoLogs);
       };
       
-      const steps = [
-        // Welcome
-        <div className="flex flex-col items-center justify-center min-h-screen p-6 text-center fade-in">
-          <div className="text-6xl mb-6">🌿</div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-4">Welcome to GutSync</h1>
-          <p className="text-gray-600 mb-8 max-w-md">
-            Your AI-powered companion for managing Crohn's Disease. Track symptoms, 
-            spot patterns, and take control of your health.
-          </p>
-          <div className="space-y-3 text-left max-w-sm mb-8">
-            <div className="flex items-center gap-3"><span className="text-2xl">📊</span><span>Smart symptom tracking</span></div>
-            <div className="flex items-center gap-3"><span className="text-2xl">🤖</span><span>AI-powered flare prediction</span></div>
-            <div className="flex items-center gap-3"><span className="text-2xl">📋</span><span>Doctor-ready reports</span></div>
-          </div>
-          <button 
-            onClick={() => setStep(1)}
-            className="w-full max-w-sm bg-gut-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-gut-700 transition"
-          >
-            Get Started
-          </button>
-        </div>,
+      // Generate realistic demo logs
+      const generateDemoLogs = () => {
+        const logs = [];
+        const today = new Date();
         
-        // Diagnosis Date
-        <div className="flex flex-col min-h-screen p-6 fade-in">
-          <div className="flex-1 flex flex-col justify-center">
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">When were you diagnosed?</h2>
-            <p className="text-gray-500 mb-8">This helps us understand your journey.</p>
-            <input 
-              type="date"
-              value={diagnosisDate}
-              onChange={(e) => setDiagnosisDate(e.target.value)}
-              className="w-full p-4 border-2 border-gray-200 rounded-xl text-lg focus:border-gut-500 focus:outline-none"
-            />
-          </div>
-          <button 
-            onClick={() => setStep(2)}
-            disabled={!diagnosisDate}
-            className="w-full bg-gut-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-gut-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
-          >
-            Continue
-          </button>
-        </div>,
+        for (let i = 14; i >= 0; i--) {
+          const date = new Date(today);
+          date.setDate(date.getDate() - i);
+          
+          // Simulate a mini-flare around 8 days ago
+          const isFlareDay = i >= 7 && i <= 9;
+          const isRecovery = i >= 4 && i <= 6;
+          
+          const painLevel = isFlareDay ? Math.floor(Math.random() * 3) + 6 : 
+                           isRecovery ? Math.floor(Math.random() * 2) + 3 :
+                           Math.floor(Math.random() * 3) + 1;
+          
+          const bowelCount = isFlareDay ? Math.floor(Math.random() * 3) + 5 :
+                            isRecovery ? Math.floor(Math.random() * 2) + 3 :
+                            Math.floor(Math.random() * 2) + 2;
+          
+          const bristolType = isFlareDay ? Math.floor(Math.random() * 2) + 6 :
+                             isRecovery ? Math.floor(Math.random() * 2) + 4 :
+                             Math.floor(Math.random() * 2) + 3;
+          
+          const fatigue = isFlareDay ? Math.floor(Math.random() * 2) + 1 :
+                         isRecovery ? 3 :
+                         Math.floor(Math.random() * 2) + 4;
+          
+          logs.push({
+            date: date.toISOString().split('T')[0],
+            timestamp: date.toISOString(),
+            painLevel,
+            bowelCount,
+            bristolType,
+            fatigue,
+            medsTaken: ['Humira (adalimumab)', 'Prednisone'],
+            extras: isFlareDay ? ['fatigue', 'cramping'] : [],
+            notes: '',
+            hbi: calculateHBI({ bowelCount, painLevel, fatigue })
+          });
+        }
         
-        // Medications
-        <div className="flex flex-col min-h-screen p-6 fade-in">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Your Medications</h2>
-          <p className="text-gray-500 mb-6">Select all that apply.</p>
-          <div className="flex-1 overflow-auto">
-            <div className="space-y-2 mb-4">
-              {DEFAULT_MEDICATIONS.map(med => (
-                <button
-                  key={med}
-                  onClick={() => handleMedToggle(med)}
-                  className={`w-full p-4 rounded-xl text-left transition flex items-center justify-between ${
-                    medications.includes(med) 
-                      ? 'bg-gut-100 border-2 border-gut-500 text-gut-700' 
-                      : 'bg-white border-2 border-gray-200 text-gray-700'
-                  }`}
-                >
-                  <span>{med}</span>
-                  {medications.includes(med) && <span className="text-gut-600">✓</span>}
-                </button>
-              ))}
-            </div>
-            <div className="flex gap-2 mb-4">
+        return logs;
+      };
+      
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-gut-50 to-white p-6 fade-in">
+          {/* Header */}
+          <div className="text-center mb-8 pt-8">
+            <div className="text-6xl mb-4">🌿</div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome to GutSync</h1>
+            <p className="text-gray-600">Your AI-powered Crohn's companion</p>
+          </div>
+          
+          {/* Quick Setup Form */}
+          <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Setup</h2>
+            
+            {/* Diagnosis Date */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                When were you diagnosed?
+              </label>
               <input 
-                type="text"
-                placeholder="Add custom medication..."
-                value={customMed}
-                onChange={(e) => setCustomMed(e.target.value)}
-                className="flex-1 p-4 border-2 border-gray-200 rounded-xl focus:border-gut-500 focus:outline-none"
+                type="date"
+                value={diagnosisDate}
+                onChange={(e) => setDiagnosisDate(e.target.value)}
+                className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-gut-500 focus:outline-none"
               />
-              <button 
-                onClick={() => { if (customMed.trim()) { handleMedToggle(customMed.trim()); setCustomMed(''); }}}
-                className="px-6 bg-gray-100 rounded-xl font-medium hover:bg-gray-200 transition"
-              >
-                Add
-              </button>
             </div>
-          </div>
-          <button 
-            onClick={() => setStep(3)}
-            className="w-full bg-gut-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-gut-700 transition"
-          >
-            Continue
-          </button>
-        </div>,
-        
-        // Medication Photo
-        <div className="flex flex-col min-h-screen p-6 fade-in">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Medication Photo</h2>
-          <p className="text-gray-500 mb-6">Optional: Snap a photo of your meds for reference.</p>
-          <div className="flex-1 flex flex-col items-center justify-center">
-            {medPhoto ? (
-              <div className="relative w-full max-w-sm">
-                <img src={medPhoto} alt="Medications" className="w-full rounded-xl shadow-lg" />
+            
+            {/* Medications */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Current Medications
+              </label>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {DEFAULT_MEDICATIONS.map(med => (
+                  <button
+                    key={med}
+                    onClick={() => handleMedToggle(med)}
+                    className={`w-full p-3 rounded-xl text-left text-sm transition flex items-center justify-between ${
+                      medications.includes(med) 
+                        ? 'bg-gut-100 border-2 border-gut-500 text-gut-700' 
+                        : 'bg-gray-50 border-2 border-gray-200 text-gray-700'
+                    }`}
+                  >
+                    <span>{med}</span>
+                    {medications.includes(med) && <span className="text-gut-600 font-bold">✓</span>}
+                  </button>
+                ))}
+              </div>
+              
+              {/* Custom medication */}
+              <div className="flex gap-2 mt-3">
+                <input 
+                  type="text"
+                  placeholder="Add other medication..."
+                  value={customMed}
+                  onChange={(e) => setCustomMed(e.target.value)}
+                  className="flex-1 p-3 border-2 border-gray-200 rounded-xl text-sm focus:border-gut-500 focus:outline-none"
+                />
                 <button 
-                  onClick={() => setMedPhoto(null)}
-                  className="absolute top-2 right-2 bg-white p-2 rounded-full shadow"
+                  onClick={() => { 
+                    if (customMed.trim()) { 
+                      handleMedToggle(customMed.trim()); 
+                      setCustomMed(''); 
+                    }
+                  }}
+                  className="px-4 bg-gray-100 rounded-xl font-medium text-sm hover:bg-gray-200 transition"
                 >
-                  ✕
+                  Add
                 </button>
               </div>
-            ) : (
-              <label className="w-full max-w-sm aspect-square border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-gut-500 transition">
-                <span className="text-5xl mb-4">📷</span>
-                <span className="text-gray-500">Tap to capture</span>
-                <input type="file" accept="image/*" capture="environment" onChange={handlePhotoCapture} className="hidden" />
-              </label>
-            )}
+            </div>
           </div>
-          <div className="space-y-3">
-            <button 
-              onClick={() => setStep(4)}
-              className="w-full bg-gut-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-gut-700 transition"
-            >
-              {medPhoto ? 'Continue' : 'Skip for Now'}
-            </button>
+          
+          {/* Features Preview */}
+          <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
+            <h3 className="font-semibold text-gray-900 mb-4">What you'll get:</h3>
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🎤</span>
+                <span className="text-gray-700">Voice-powered symptom logging</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🤖</span>
+                <span className="text-gray-700">AI flare prediction (24-72 hours)</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">📊</span>
+                <span className="text-gray-700">Trend analysis & insights</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">📋</span>
+                <span className="text-gray-700">Doctor-ready reports</span>
+              </div>
+            </div>
           </div>
-        </div>,
-        
-        // Confirmation
-        <div className="flex flex-col items-center justify-center min-h-screen p-6 text-center fade-in">
-          <div className="text-6xl mb-6">🎉</div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">You're All Set!</h2>
-          <p className="text-gray-600 mb-8 max-w-md">
-            GutSync is ready to help you track your symptoms and spot patterns. 
-            Start with your first daily check-in!
-          </p>
-          <div className="bg-gut-50 p-4 rounded-xl mb-8 max-w-sm text-left">
-            <p className="text-sm text-gut-700">
-              <strong>Pro tip:</strong> Log daily for the best insights. 
-              Just 2 minutes a day helps our AI learn your patterns!
-            </p>
-          </div>
+          
+          {/* Start Button */}
           <button 
             onClick={finishOnboarding}
-            className="w-full max-w-sm bg-gut-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-gut-700 transition"
+            className="w-full bg-gut-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-gut-700 transition shadow-lg"
           >
-            Start Tracking
+            Start Tracking 🚀
           </button>
+          
+          <p className="text-center text-sm text-gray-500 mt-4">
+            Demo data will be added for a better first experience
+          </p>
         </div>
-      ];
-      
-      return steps[step];
+      );
     };
     
-    // Daily Check-in Screen
-    const DailyCheckin = ({ user, onSave, onCancel, existingLog }) => {
-      const [bowelCount, setBowelCount] = useState(existingLog?.bowelCount || 0);
-      const [bristolType, setBristolType] = useState(existingLog?.bristolType || null);
-      const [painLevel, setPainLevel] = useState(existingLog?.painLevel || 0);
-      const [painLocation, setPainLocation] = useState(existingLog?.painLocation || null);
-      const [fatigue, setFatigue] = useState(existingLog?.fatigue || 3);
-      const [medsTaken, setMedsTaken] = useState(existingLog?.medsTaken || []);
-      const [extras, setExtras] = useState(existingLog?.extras || []);
-      const [notes, setNotes] = useState(existingLog?.notes || '');
-      const [step, setStep] = useState(0);
+    // Voice Logging Modal
+    const VoiceLogModal = ({ isOpen, onClose, onSave, user, existingLog }) => {
+      const { isListening, transcript, isSupported, startListening, stopListening, setTranscript } = useVoiceRecognition();
+      const [parsedData, setParsedData] = useState(null);
+      const [showManualForm, setShowManualForm] = useState(false);
+      const [manualData, setManualData] = useState({
+        painLevel: existingLog?.painLevel || 3,
+        bowelCount: existingLog?.bowelCount || 2,
+        bristolType: existingLog?.bristolType || 4,
+        fatigue: existingLog?.fatigue || 3,
+        medsTaken: existingLog?.medsTaken || [],
+        extras: existingLog?.extras || [],
+        notes: existingLog?.notes || ''
+      });
       
-      const handleMedToggle = (med) => {
-        setMedsTaken(prev => prev.includes(med) ? prev.filter(m => m !== med) : [...prev, med]);
+      useEffect(() => {
+        if (transcript) {
+          const parsed = parseVoiceInput(transcript);
+          setParsedData(parsed);
+        }
+      }, [transcript]);
+      
+      const handleVoiceToggle = () => {
+        if (isListening) {
+          stopListening();
+        } else {
+          startListening();
+        }
       };
       
-      const handleExtraToggle = (id) => {
-        setExtras(prev => prev.includes(id) ? prev.filter(e => e !== id) : [...prev, id]);
-      };
-      
-      const handleSave = () => {
+      const handleSaveVoice = () => {
         const log = {
           date: new Date().toISOString().split('T')[0],
           timestamp: new Date().toISOString(),
-          bowelCount,
-          bristolType,
-          painLevel,
-          painLocation,
-          fatigue,
-          medsTaken,
-          extras,
-          notes,
-          hbi: calculateHBI({ bowelCount, painLevel, fatigue })
+          painLevel: parsedData?.painLevel || 3,
+          bowelCount: parsedData?.bowelCount || 2,
+          bristolType: parsedData?.bristolType || 4,
+          fatigue: 3,
+          medsTaken: user?.medications || [],
+          extras: parsedData?.extras || [],
+          notes: transcript,
+          hbi: calculateHBI({ 
+            bowelCount: parsedData?.bowelCount || 2, 
+            painLevel: parsedData?.painLevel || 3, 
+            fatigue: 3 
+          })
         };
         onSave(log);
+        onClose();
       };
       
-      const steps = [
-        // Bowel Movements
-        <div className="space-y-6 fade-in">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Bowel Movements Today</h3>
-            <div className="flex items-center justify-center gap-6">
-              <button 
-                onClick={() => setBowelCount(Math.max(0, bowelCount - 1))}
-                className="w-14 h-14 bg-gray-100 rounded-full text-2xl font-bold text-gray-600 hover:bg-gray-200 transition"
-              >
-                −
-              </button>
-              <span className="text-5xl font-bold text-gut-600 w-16 text-center">{bowelCount}</span>
-              <button 
-                onClick={() => setBowelCount(bowelCount + 1)}
-                className="w-14 h-14 bg-gut-100 rounded-full text-2xl font-bold text-gut-600 hover:bg-gut-200 transition"
-              >
-                +
-              </button>
-            </div>
-          </div>
-          
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Bristol Stool Type</h3>
-            <div className="grid grid-cols-1 gap-2">
-              {BRISTOL_SCALE.map((item) => (
-                <button
-                  key={item.type}
-                  onClick={() => setBristolType(item.type)}
-                  className={`bristol-btn p-3 rounded-xl flex items-center gap-3 ${
-                    bristolType === item.type 
-                      ? 'bg-gut-100 border-2 border-gut-500' 
-                      : 'bg-white border-2 border-gray-200'
-                  }`}
-                >
-                  <div className={`w-8 h-8 rounded-full ${item.color} flex items-center justify-center text-white font-bold`}>
-                    {item.type}
-                  </div>
-                  <div className="text-left">
-                    <div className="font-medium text-gray-900">{item.name}</div>
-                    <div className="text-sm text-gray-500">{item.desc}</div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>,
-        
-        // Pain Assessment
-        <div className="space-y-6 fade-in">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Pain Level</h3>
-            <p className="text-gray-500 text-sm mb-4">0 = No pain, 10 = Worst pain</p>
-            <div className="flex justify-between mb-2">
-              {[0,1,2,3,4,5,6,7,8,9,10].map(n => (
-                <button
-                  key={n}
-                  onClick={() => setPainLevel(n)}
-                  className={`w-8 h-8 rounded-full text-sm font-medium transition ${
-                    painLevel === n 
-                      ? n <= 3 ? 'bg-green-500 text-white' : n <= 6 ? 'bg-yellow-500 text-white' : 'bg-red-500 text-white'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  {n}
-                </button>
-              ))}
-            </div>
-            <div className="flex justify-between text-xs text-gray-400">
-              <span>None</span>
-              <span>Moderate</span>
-              <span>Severe</span>
-            </div>
-          </div>
-          
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Pain Location</h3>
-            <div className="relative w-full max-w-xs mx-auto aspect-[3/4] bg-gray-100 rounded-2xl overflow-hidden">
-              {/* Body outline SVG */}
-              <svg viewBox="0 0 100 133" className="w-full h-full">
-                <ellipse cx="50" cy="15" rx="12" ry="14" fill="#e5e7eb" stroke="#d1d5db" strokeWidth="1"/>
-                <path d="M30 30 L25 80 L35 80 L38 50 L50 55 L62 50 L65 80 L75 80 L70 30 L50 35 Z" fill="#e5e7eb" stroke="#d1d5db" strokeWidth="1"/>
-                <rect x="20" y="80" width="15" height="50" rx="5" fill="#e5e7eb" stroke="#d1d5db" strokeWidth="1"/>
-                <rect x="65" y="80" width="15" height="50" rx="5" fill="#e5e7eb" stroke="#d1d5db" strokeWidth="1"/>
-              </svg>
-              {/* Pain location buttons */}
-              {PAIN_LOCATIONS.map(loc => (
-                <button
-                  key={loc.id}
-                  onClick={() => setPainLocation(loc.id)}
-                  style={{ left: `${loc.x}%`, top: `${loc.y}%` }}
-                  className={`absolute transform -translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full transition ${
-                    painLocation === loc.id 
-                      ? 'bg-red-500 ring-4 ring-red-200' 
-                      : 'bg-red-200 hover:bg-red-300'
-                  }`}
-                />
-              ))}
-            </div>
-            <p className="text-center text-sm text-gray-500 mt-2">
-              {painLocation ? PAIN_LOCATIONS.find(l => l.id === painLocation)?.label : 'Tap where it hurts'}
-            </p>
-          </div>
-        </div>,
-        
-        // Medications & Energy
-        <div className="space-y-6 fade-in">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Medications Taken</h3>
-            <div className="space-y-2">
-              {(user?.medications || []).map(med => (
-                <button
-                  key={med}
-                  onClick={() => handleMedToggle(med)}
-                  className={`w-full p-4 rounded-xl text-left flex items-center justify-between transition ${
-                    medsTaken.includes(med) 
-                      ? 'bg-gut-100 border-2 border-gut-500' 
-                      : 'bg-white border-2 border-gray-200'
-                  }`}
-                >
-                  <span>{med}</span>
-                  <span className={medsTaken.includes(med) ? 'text-gut-600' : 'text-gray-300'}>
-                    {medsTaken.includes(med) ? '✓' : '○'}
-                  </span>
-                </button>
-              ))}
-              {(!user?.medications || user.medications.length === 0) && (
-                <p className="text-gray-500 text-center py-4">No medications set up yet</p>
-              )}
-            </div>
-          </div>
-          
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Energy Level</h3>
-            <div className="flex justify-between gap-2">
-              {[
-                { v: 1, label: 'Exhausted', emoji: '😩' },
-                { v: 2, label: 'Tired', emoji: '😔' },
-                { v: 3, label: 'Okay', emoji: '😐' },
-                { v: 4, label: 'Good', emoji: '🙂' },
-                { v: 5, label: 'Great', emoji: '😊' }
-              ].map(e => (
-                <button
-                  key={e.v}
-                  onClick={() => setFatigue(e.v)}
-                  className={`flex-1 py-4 rounded-xl flex flex-col items-center transition ${
-                    fatigue === e.v 
-                      ? 'bg-gut-100 border-2 border-gut-500' 
-                      : 'bg-white border-2 border-gray-200'
-                  }`}
-                >
-                  <span className="text-2xl">{e.emoji}</span>
-                  <span className="text-xs mt-1 text-gray-600">{e.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>,
-        
-        // Extra Symptoms & Notes
-        <div className="space-y-6 fade-in">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Other Symptoms</h3>
-            <div className="grid grid-cols-2 gap-2">
-              {EXTRA_SYMPTOMS.map(s => (
-                <button
-                  key={s.id}
-                  onClick={() => handleExtraToggle(s.id)}
-                  className={`p-4 rounded-xl flex items-center gap-2 transition ${
-                    extras.includes(s.id) 
-                      ? 'bg-orange-100 border-2 border-orange-400' 
-                      : 'bg-white border-2 border-gray-200'
-                  }`}
-                >
-                  <span className="text-xl">{s.icon}</span>
-                  <span className="text-sm">{s.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-          
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Notes (Optional)</h3>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Anything else to note? Food triggers, stress, etc..."
-              className="w-full p-4 border-2 border-gray-200 rounded-xl h-24 resize-none focus:border-gut-500 focus:outline-none"
-            />
-          </div>
-        </div>
-      ];
+      const handleSaveManual = () => {
+        const log = {
+          date: new Date().toISOString().split('T')[0],
+          timestamp: new Date().toISOString(),
+          ...manualData,
+          hbi: calculateHBI(manualData)
+        };
+        onSave(log);
+        onClose();
+      };
+      
+      const simulateTranscription = () => {
+        // For demo purposes when speech API isn't available
+        const demoTranscripts = [
+          "Pain level about 4, went to the bathroom 3 times today, stools were a bit loose, feeling some fatigue",
+          "Feeling pretty good today, mild pain around 2, normal bowel movements twice",
+          "Not great today, pain is about 6 out of 10, had 5 bowel movements, liquid stools, also feeling nauseous"
+        ];
+        const randomTranscript = demoTranscripts[Math.floor(Math.random() * demoTranscripts.length)];
+        setTranscript(randomTranscript);
+      };
+      
+      if (!isOpen) return null;
       
       return (
-        <div className="fixed inset-0 bg-white z-50 flex flex-col slide-up">
-          <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
-            <button onClick={onCancel} className="text-gray-500 font-medium">Cancel</button>
-            <h2 className="font-semibold">Daily Check-in</h2>
-            <span className="text-sm text-gray-400">{step + 1}/4</span>
-          </div>
-          
-          <div className="flex-1 overflow-auto p-4">
-            {steps[step]}
-          </div>
-          
-          <div className="bg-white border-t border-gray-200 p-4 safe-area-bottom">
-            <div className="flex gap-3">
-              {step > 0 && (
-                <button 
-                  onClick={() => setStep(step - 1)}
-                  className="flex-1 py-4 border-2 border-gray-200 rounded-xl font-semibold text-gray-600 hover:bg-gray-50 transition"
-                >
-                  Back
-                </button>
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center slide-up">
+          <div className="bg-white rounded-t-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+              <h2 className="font-semibold text-lg">Log Symptoms</h2>
+              <button onClick={onClose} className="text-gray-500 text-2xl">&times;</button>
+            </div>
+            
+            <div className="p-6">
+              {!showManualForm ? (
+                <>
+                  {/* Voice Recording Section */}
+                  <div className="text-center mb-6">
+                    <p className="text-gray-600 mb-6">
+                      {isListening ? 'Listening... Speak your symptoms' : 'Tap and describe how you\'re feeling'}
+                    </p>
+                    
+                    {/* Large Voice Button */}
+                    <button
+                      onClick={handleVoiceToggle}
+                      disabled={!isSupported}
+                      className={`relative w-32 h-32 rounded-full mx-auto flex items-center justify-center transition-all ${
+                        isListening 
+                          ? 'bg-red-500 scale-110' 
+                          : 'bg-gut-500 hover:bg-gut-600'
+                      } ${!isSupported ? 'opacity-50' : ''}`}
+                    >
+                      {isListening && (
+                        <div className="absolute inset-0 rounded-full bg-red-400 voice-btn-ring" />
+                      )}
+                      <span className={`text-5xl ${isListening ? 'mic-recording' : ''}`}>🎤</span>
+                    </button>
+                    
+                    {!isSupported && (
+                      <p className="text-orange-600 text-sm mt-4">
+                        Voice not supported in this browser. 
+                        <button 
+                          onClick={simulateTranscription}
+                          className="underline ml-1"
+                        >
+                          Try demo
+                        </button>
+                      </p>
+                    )}
+                  </div>
+                  
+                  {/* Transcript Display */}
+                  {transcript && (
+                    <div className="bg-gray-50 rounded-xl p-4 mb-4">
+                      <p className="text-sm text-gray-500 mb-1">You said:</p>
+                      <p className="text-gray-800">"{transcript}"</p>
+                    </div>
+                  )}
+                  
+                  {/* Parsed Results */}
+                  {parsedData && transcript && (
+                    <div className="bg-gut-50 rounded-xl p-4 mb-6">
+                      <p className="text-sm text-gut-700 font-medium mb-3">Detected symptoms:</p>
+                      <div className="space-y-2 text-sm">
+                        {parsedData.painLevel !== null && (
+                          <div className="flex justify-between">
+                            <span>Pain Level:</span>
+                            <span className="font-medium">{parsedData.painLevel}/10</span>
+                          </div>
+                        )}
+                        {parsedData.bowelCount !== null && (
+                          <div className="flex justify-between">
+                            <span>Bowel Movements:</span>
+                            <span className="font-medium">{parsedData.bowelCount}</span>
+                          </div>
+                        )}
+                        {parsedData.bristolType !== null && (
+                          <div className="flex justify-between">
+                            <span>Stool Type:</span>
+                            <span className="font-medium">Bristol {parsedData.bristolType}</span>
+                          </div>
+                        )}
+                        {parsedData.extras.length > 0 && (
+                          <div className="flex justify-between">
+                            <span>Other Symptoms:</span>
+                            <span className="font-medium">{parsedData.extras.join(', ')}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Action Buttons */}
+                  <div className="space-y-3">
+                    {transcript && (
+                      <button
+                        onClick={handleSaveVoice}
+                        className="w-full py-4 bg-gut-600 text-white rounded-xl font-semibold hover:bg-gut-700 transition"
+                      >
+                        Save Log ✓
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setShowManualForm(true)}
+                      className="w-full py-3 border-2 border-gray-200 text-gray-600 rounded-xl font-medium hover:bg-gray-50 transition"
+                    >
+                      Enter Manually Instead
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Manual Form */}
+                  <div className="space-y-6">
+                    {/* Pain Level */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Pain Level: {manualData.painLevel}/10
+                      </label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="10"
+                        value={manualData.painLevel}
+                        onChange={(e) => setManualData(d => ({ ...d, painLevel: parseInt(e.target.value) }))}
+                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                      />
+                      <div className="flex justify-between text-xs text-gray-400 mt-1">
+                        <span>None</span>
+                        <span>Severe</span>
+                      </div>
+                    </div>
+                    
+                    {/* Bowel Count */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Bowel Movements Today
+                      </label>
+                      <div className="flex items-center justify-center gap-4">
+                        <button 
+                          onClick={() => setManualData(d => ({ ...d, bowelCount: Math.max(0, d.bowelCount - 1) }))}
+                          className="w-12 h-12 bg-gray-100 rounded-full text-xl font-bold"
+                        >−</button>
+                        <span className="text-3xl font-bold w-12 text-center">{manualData.bowelCount}</span>
+                        <button 
+                          onClick={() => setManualData(d => ({ ...d, bowelCount: d.bowelCount + 1 }))}
+                          className="w-12 h-12 bg-gut-100 rounded-full text-xl font-bold text-gut-600"
+                        >+</button>
+                      </div>
+                    </div>
+                    
+                    {/* Bristol Type */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Stool Consistency
+                      </label>
+                      <div className="flex gap-1">
+                        {BRISTOL_SCALE.map(item => (
+                          <button
+                            key={item.type}
+                            onClick={() => setManualData(d => ({ ...d, bristolType: item.type }))}
+                            className={`flex-1 p-2 rounded-lg text-center transition ${
+                              manualData.bristolType === item.type 
+                                ? `${item.color} text-white` 
+                                : 'bg-gray-100'
+                            }`}
+                          >
+                            <div className="font-bold">{item.type}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    {/* Extra Symptoms */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Other Symptoms
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        {EXTRA_SYMPTOMS.map(s => (
+                          <button
+                            key={s.id}
+                            onClick={() => setManualData(d => ({
+                              ...d,
+                              extras: d.extras.includes(s.id) 
+                                ? d.extras.filter(e => e !== s.id)
+                                : [...d.extras, s.id]
+                            }))}
+                            className={`px-3 py-2 rounded-lg text-sm transition ${
+                              manualData.extras.includes(s.id)
+                                ? 'bg-orange-100 border-2 border-orange-400'
+                                : 'bg-gray-100 border-2 border-transparent'
+                            }`}
+                          >
+                            {s.icon} {s.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    {/* Notes */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Notes (optional)
+                      </label>
+                      <textarea
+                        value={manualData.notes}
+                        onChange={(e) => setManualData(d => ({ ...d, notes: e.target.value }))}
+                        placeholder="Food triggers, stress, etc..."
+                        className="w-full p-3 border-2 border-gray-200 rounded-xl h-20 resize-none focus:border-gut-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                  
+                  {/* Save Button */}
+                  <div className="mt-6 space-y-3">
+                    <button
+                      onClick={handleSaveManual}
+                      className="w-full py-4 bg-gut-600 text-white rounded-xl font-semibold hover:bg-gut-700 transition"
+                    >
+                      Save Log ✓
+                    </button>
+                    <button
+                      onClick={() => setShowManualForm(false)}
+                      className="w-full py-3 text-gray-500 font-medium"
+                    >
+                      ← Back to Voice
+                    </button>
+                  </div>
+                </>
               )}
-              <button 
-                onClick={() => step < 3 ? setStep(step + 1) : handleSave()}
-                className="flex-1 py-4 bg-gut-600 text-white rounded-xl font-semibold hover:bg-gut-700 transition"
-              >
-                {step < 3 ? 'Next' : 'Save Log'}
-              </button>
             </div>
           </div>
         </div>
       );
     };
     
-    // Dashboard
+    // New Dashboard
     const Dashboard = ({ user, logs, onCheckin, onViewInsights, onViewReport }) => {
       const insights = useMemo(() => generateInsights(logs, user), [logs, user]);
+      const lastFlare = useMemo(() => findLastFlare(logs), [logs]);
+      const [showVoiceModal, setShowVoiceModal] = useState(false);
       const chartRef = useRef(null);
       const chartInstance = useRef(null);
       
-      // Calculate stats
       const todayLog = logs.find(l => l.date === new Date().toISOString().split('T')[0]);
-      const streak = useMemo(() => {
-        let count = 0;
-        const today = new Date();
-        for (let i = 0; i < 30; i++) {
-          const date = new Date(today);
-          date.setDate(date.getDate() - i);
-          const dateStr = date.toISOString().split('T')[0];
-          if (logs.find(l => l.date === dateStr)) count++;
-          else if (i > 0) break;
-        }
-        return count;
-      }, [logs]);
       
-      const adherence = useMemo(() => {
-        if (!user?.medications?.length || !logs.length) return null;
-        const recent = logs.slice(-7);
-        const totalMeds = recent.length * user.medications.length;
-        const takenMeds = recent.reduce((sum, l) => sum + (l.medsTaken?.length || 0), 0);
-        return Math.round((takenMeds / totalMeds) * 100);
-      }, [logs, user]);
+      const handleSaveLog = (log) => {
+        onCheckin(log);
+        setShowVoiceModal(false);
+      };
+      
+      // Recommendation based on risk level
+      const getRecommendation = () => {
+        switch (insights.riskLevel) {
+          case 'high':
+            return { icon: '🚨', text: 'Contact your GI, prepare flare kit', color: 'bg-red-50 text-red-800 border-red-200' };
+          case 'medium':
+            return { icon: '⚠️', text: 'Monitor closely, consider reducing stress', color: 'bg-yellow-50 text-yellow-800 border-yellow-200' };
+          default:
+            return { icon: '✅', text: 'Continue tracking, stay hydrated', color: 'bg-green-50 text-green-800 border-green-200' };
+        }
+      };
+      
+      const recommendation = getRecommendation();
       
       // Chart
       useEffect(() => {
@@ -688,107 +892,157 @@
         return () => { if (chartInstance.current) chartInstance.current.destroy(); };
       }, [logs]);
       
-      const statusColors = {
-        good: 'bg-green-100 border-green-300 text-green-800',
-        caution: 'bg-yellow-100 border-yellow-300 text-yellow-800',
-        warning: 'bg-red-100 border-red-300 text-red-800',
-        neutral: 'bg-gray-100 border-gray-300 text-gray-800'
+      const riskColors = {
+        low: 'from-green-400 to-green-500',
+        medium: 'from-yellow-400 to-orange-500',
+        high: 'from-red-400 to-red-500'
       };
       
       return (
         <div className="pb-24">
+          {/* Voice Modal */}
+          <VoiceLogModal
+            isOpen={showVoiceModal}
+            onClose={() => setShowVoiceModal(false)}
+            onSave={handleSaveLog}
+            user={user}
+            existingLog={todayLog}
+          />
+          
           {/* Header */}
-          <div className="bg-gradient-to-br from-gut-600 to-gut-700 text-white p-6 rounded-b-3xl">
-            <div className="flex items-center justify-between mb-4">
+          <div className="bg-gradient-to-br from-gut-600 to-gut-700 text-white px-6 pt-6 pb-8 rounded-b-3xl">
+            <div className="flex items-center justify-between mb-2">
               <div>
                 <h1 className="text-2xl font-bold">GutSync</h1>
                 <p className="text-gut-200 text-sm">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
               </div>
               <div className="text-4xl">🌿</div>
             </div>
-            
-            <div className="grid grid-cols-2 gap-3 mt-4">
-              <div className="bg-white/20 rounded-xl p-4">
-                <div className="text-3xl font-bold">{streak}</div>
-                <div className="text-gut-200 text-sm">Day Streak 🔥</div>
-              </div>
-              {adherence !== null && (
-                <div className="bg-white/20 rounded-xl p-4">
-                  <div className="text-3xl font-bold">{adherence}%</div>
-                  <div className="text-gut-200 text-sm">Med Adherence</div>
+          </div>
+          
+          {/* ===== TOP SECTION: Flare Info ===== */}
+          <div className="px-4 -mt-6">
+            <div className="bg-white rounded-2xl shadow-lg p-4 border border-gray-100">
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                {/* Last Flare */}
+                <div className="text-center p-3 bg-gray-50 rounded-xl">
+                  <div className="text-sm text-gray-500 mb-1">Last Flare</div>
+                  {lastFlare ? (
+                    <>
+                      <div className="text-2xl font-bold text-gray-800">{lastFlare.daysAgo} days</div>
+                      <div className="text-xs text-gray-400">{new Date(lastFlare.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+                    </>
+                  ) : (
+                    <div className="text-lg font-medium text-green-600">None recorded 🎉</div>
+                  )}
                 </div>
-              )}
+                
+                {/* Flare Risk */}
+                <div className="text-center p-3 bg-gray-50 rounded-xl">
+                  <div className="text-sm text-gray-500 mb-1">Flare Risk (24-72h)</div>
+                  {insights.riskPercent !== null ? (
+                    <>
+                      <div className={`text-2xl font-bold ${
+                        insights.riskLevel === 'low' ? 'text-green-600' :
+                        insights.riskLevel === 'medium' ? 'text-yellow-600' : 'text-red-600'
+                      }`}>
+                        {insights.riskPercent}%
+                      </div>
+                      <div className="text-xs text-gray-400 capitalize">{insights.riskLevel} risk</div>
+                    </>
+                  ) : (
+                    <div className="text-lg font-medium text-gray-400">Calculating...</div>
+                  )}
+                </div>
+              </div>
+              
+              {/* Recommendation */}
+              <div className={`p-3 rounded-xl border ${recommendation.color}`}>
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">{recommendation.icon}</span>
+                  <span className="font-medium text-sm">{recommendation.text}</span>
+                </div>
+              </div>
             </div>
           </div>
           
-          {/* AI Insight Card */}
-          <div className="px-4 -mt-4">
-            <div className={`p-4 rounded-xl border-2 ${statusColors[insights.status]}`}>
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="font-semibold">{insights.message}</div>
-                  <p className="text-sm mt-1 opacity-80">{insights.details}</p>
-                </div>
-                <span className="text-2xl">
-                  {insights.status === 'good' ? '💚' : insights.status === 'caution' ? '💛' : insights.status === 'warning' ? '❤️‍🔥' : '🤖'}
+          {/* ===== CENTER SECTION: Voice Log Button ===== */}
+          <div className="px-4 mt-6 mb-6">
+            <div className="text-center">
+              <button
+                onClick={() => setShowVoiceModal(true)}
+                className={`relative w-36 h-36 rounded-full mx-auto flex flex-col items-center justify-center transition-all shadow-lg hover:shadow-xl ${
+                  todayLog 
+                    ? 'bg-gradient-to-br from-gray-400 to-gray-500' 
+                    : 'bg-gradient-to-br from-gut-500 to-gut-600 hover:from-gut-600 hover:to-gut-700'
+                }`}
+              >
+                {!todayLog && (
+                  <div className="absolute inset-0 rounded-full bg-gut-400 voice-btn-ring opacity-50" />
+                )}
+                <span className="text-5xl mb-1">🎤</span>
+                <span className="text-white text-sm font-medium">
+                  {todayLog ? 'Edit Log' : 'Log Symptoms'}
                 </span>
-              </div>
-              {insights.score !== undefined && (
-                <button 
-                  onClick={onViewInsights}
-                  className="mt-3 text-sm font-medium underline"
-                >
-                  View detailed insights →
-                </button>
-              )}
+              </button>
+              <p className="text-gray-500 text-sm mt-3">
+                {todayLog ? 'Tap to update today\'s log' : 'Tap and tell me how you\'re feeling'}
+              </p>
             </div>
           </div>
           
-          {/* Quick Log Button */}
-          <div className="px-4 mt-4">
-            <button 
-              onClick={onCheckin}
-              className={`w-full py-4 rounded-xl font-semibold text-lg transition flex items-center justify-center gap-2 ${
-                todayLog 
-                  ? 'bg-gray-100 text-gray-600 hover:bg-gray-200' 
-                  : 'bg-gut-600 text-white hover:bg-gut-700'
-              }`}
-            >
-              {todayLog ? (
-                <>✓ Logged Today — Edit</>
-              ) : (
-                <>📝 Daily Check-in</>
-              )}
-            </button>
-          </div>
+          {/* ===== BOTTOM SECTION: Recent Logs & Stats ===== */}
           
-          {/* Trend Chart */}
-          <div className="px-4 mt-6">
-            <h2 className="font-semibold text-gray-900 mb-3">Your Trends</h2>
-            <div className="bg-white rounded-xl p-4 border border-gray-200">
-              {logs.length > 0 ? (
-                <div className="h-48">
-                  <canvas ref={chartRef}></canvas>
-                </div>
-              ) : (
-                <div className="h-48 flex items-center justify-center text-gray-400">
-                  <div className="text-center">
-                    <div className="text-4xl mb-2">📊</div>
-                    <p>Log symptoms to see trends</p>
-                  </div>
-                </div>
-              )}
+          {/* Quick Stats */}
+          <div className="px-4 mb-4">
+            <div className="grid grid-cols-3 gap-3">
+              {(() => {
+                const recent = logs.slice(-7);
+                const avgPain = recent.length ? (recent.reduce((s, l) => s + (l.painLevel || 0), 0) / recent.length).toFixed(1) : '—';
+                const avgBM = recent.length ? (recent.reduce((s, l) => s + (l.bowelCount || 0), 0) / recent.length).toFixed(1) : '—';
+                const streak = (() => {
+                  let count = 0;
+                  const today = new Date();
+                  for (let i = 0; i < 30; i++) {
+                    const date = new Date(today);
+                    date.setDate(date.getDate() - i);
+                    const dateStr = date.toISOString().split('T')[0];
+                    if (logs.find(l => l.date === dateStr)) count++;
+                    else if (i > 0) break;
+                  }
+                  return count;
+                })();
+                
+                return (
+                  <>
+                    <div className="bg-white rounded-xl p-3 text-center border border-gray-100 shadow-sm">
+                      <div className="text-2xl font-bold text-gut-600">{streak}</div>
+                      <div className="text-xs text-gray-500">Day Streak 🔥</div>
+                    </div>
+                    <div className="bg-white rounded-xl p-3 text-center border border-gray-100 shadow-sm">
+                      <div className="text-2xl font-bold text-gray-800">{avgPain}</div>
+                      <div className="text-xs text-gray-500">Avg Pain (7d)</div>
+                    </div>
+                    <div className="bg-white rounded-xl p-3 text-center border border-gray-100 shadow-sm">
+                      <div className="text-2xl font-bold text-gray-800">{avgBM}</div>
+                      <div className="text-xs text-gray-500">Avg BM (7d)</div>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
           
           {/* Recent Logs */}
-          <div className="px-4 mt-6">
+          <div className="px-4">
             <h2 className="font-semibold text-gray-900 mb-3">Recent Logs</h2>
             <div className="space-y-2">
               {logs.slice(-5).reverse().map((log, i) => (
-                <div key={i} className="bg-white rounded-xl p-4 border border-gray-200 flex items-center justify-between">
+                <div key={i} className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm flex items-center justify-between">
                   <div>
-                    <div className="font-medium">{new Date(log.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</div>
+                    <div className="font-medium text-gray-900">
+                      {new Date(log.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                    </div>
                     <div className="text-sm text-gray-500">
                       Pain: {log.painLevel}/10 • BM: {log.bowelCount} • Bristol: {log.bristolType || '—'}
                     </div>
@@ -799,29 +1053,30 @@
                 </div>
               ))}
               {logs.length === 0 && (
-                <div className="text-center py-8 text-gray-400">
+                <div className="text-center py-8 text-gray-400 bg-white rounded-xl border border-gray-100">
                   No logs yet. Start tracking!
                 </div>
               )}
             </div>
           </div>
           
-          {/* Action Buttons */}
-          <div className="px-4 mt-6 grid grid-cols-2 gap-3">
-            <button 
-              onClick={onViewInsights}
-              className="bg-white border-2 border-gray-200 rounded-xl p-4 text-center hover:bg-gray-50 transition"
-            >
-              <div className="text-2xl mb-1">🤖</div>
-              <div className="font-medium text-gray-900">AI Insights</div>
-            </button>
-            <button 
-              onClick={onViewReport}
-              className="bg-white border-2 border-gray-200 rounded-xl p-4 text-center hover:bg-gray-50 transition"
-            >
-              <div className="text-2xl mb-1">📋</div>
-              <div className="font-medium text-gray-900">Doctor Report</div>
-            </button>
+          {/* Trend Chart (collapsible) */}
+          <div className="px-4 mt-6">
+            <h2 className="font-semibold text-gray-900 mb-3">14-Day Trends</h2>
+            <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+              {logs.length > 0 ? (
+                <div className="h-48">
+                  <canvas ref={chartRef}></canvas>
+                </div>
+              ) : (
+                <div className="h-32 flex items-center justify-center text-gray-400">
+                  <div className="text-center">
+                    <div className="text-3xl mb-2">📊</div>
+                    <p>Log symptoms to see trends</p>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       );
@@ -844,7 +1099,7 @@
       const topExtras = Object.entries(extraCounts).sort((a, b) => b[1] - a[1]).slice(0, 3);
       
       return (
-        <div className="min-h-screen bg-gray-50 pb-8">
+        <div className="min-h-screen bg-gray-50 pb-24">
           <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center">
             <button onClick={onBack} className="text-gut-600 font-medium mr-4">← Back</button>
             <h2 className="font-semibold">AI Insights</h2>
@@ -853,18 +1108,21 @@
           <div className="p-4 space-y-4">
             {/* Flare Risk */}
             <div className="bg-white rounded-xl p-4 border border-gray-200">
-              <h3 className="font-semibold text-gray-900 mb-3">Flare Risk Indicator</h3>
+              <h3 className="font-semibold text-gray-900 mb-3">Flare Risk Prediction</h3>
               <div className="flex items-center gap-4">
                 <div className={`w-20 h-20 rounded-full flex items-center justify-center text-white text-xl font-bold ${
                   insights.riskLevel === 'low' ? 'bg-green-500' : 
-                  insights.riskLevel === 'moderate' ? 'bg-yellow-500' : 
-                  insights.riskLevel === 'elevated' ? 'bg-red-500' : 'bg-gray-400'
+                  insights.riskLevel === 'medium' ? 'bg-yellow-500' : 
+                  insights.riskLevel === 'high' ? 'bg-red-500' : 'bg-gray-400'
                 }`}>
-                  {insights.score !== undefined ? `${insights.score}%` : '—'}
+                  {insights.riskPercent !== null ? `${insights.riskPercent}%` : '—'}
                 </div>
                 <div className="flex-1">
-                  <div className="font-medium text-gray-900">{insights.riskLevel ? insights.riskLevel.charAt(0).toUpperCase() + insights.riskLevel.slice(1) + ' Risk' : 'Calculating...'}</div>
+                  <div className="font-medium text-gray-900">
+                    {insights.riskLevel ? insights.riskLevel.charAt(0).toUpperCase() + insights.riskLevel.slice(1) + ' Risk' : 'Calculating...'}
+                  </div>
                   <p className="text-sm text-gray-500">{insights.details}</p>
+                  <p className="text-xs text-gray-400 mt-1">Prediction window: next 24-72 hours</p>
                 </div>
               </div>
             </div>
@@ -907,7 +1165,7 @@
                     ) : null;
                   })}
                   <p className="text-sm text-gray-500 mt-2">
-                    💡 These extra symptoms appeared frequently. Track food and stress to find correlations.
+                    💡 These symptoms appeared frequently. Track food and stress to find correlations.
                   </p>
                 </div>
               ) : (
@@ -946,26 +1204,6 @@
                 </p>
               </div>
             </div>
-            
-            {/* Mock Biometric Data */}
-            <div className="bg-white rounded-xl p-4 border border-gray-200">
-              <h3 className="font-semibold text-gray-900 mb-3">Biometric Trends (Demo)</h3>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="text-center p-3 bg-purple-50 rounded-lg">
-                  <div className="text-xl font-bold text-purple-700">45ms</div>
-                  <div className="text-xs text-gray-500">Avg HRV</div>
-                </div>
-                <div className="text-center p-3 bg-blue-50 rounded-lg">
-                  <div className="text-xl font-bold text-blue-700">7.2h</div>
-                  <div className="text-xs text-gray-500">Avg Sleep</div>
-                </div>
-                <div className="text-center p-3 bg-green-50 rounded-lg">
-                  <div className="text-xl font-bold text-green-700">65%</div>
-                  <div className="text-xs text-gray-500">Recovery</div>
-                </div>
-              </div>
-              <p className="text-xs text-gray-400 mt-2 text-center">(Mock data for demo purposes)</p>
-            </div>
           </div>
         </div>
       );
@@ -1000,7 +1238,6 @@
       const generatePDF = () => {
         setGenerating(true);
         
-        // Create a simple text report (in production, use jsPDF)
         const report = `
 ╔══════════════════════════════════════════════════════════════╗
 ║                    GUTSYNC PATIENT REPORT                     ║
@@ -1041,7 +1278,6 @@ This report is for informational purposes and should be
 reviewed with your healthcare provider.
         `.trim();
         
-        // Create download
         setTimeout(() => {
           const blob = new Blob([report], { type: 'text/plain' });
           const url = URL.createObjectURL(blob);
@@ -1055,7 +1291,7 @@ reviewed with your healthcare provider.
       };
       
       return (
-        <div className="min-h-screen bg-gray-50 pb-8">
+        <div className="min-h-screen bg-gray-50 pb-24">
           <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center">
             <button onClick={onBack} className="text-gut-600 font-medium mr-4">← Back</button>
             <h2 className="font-semibold">Doctor Report</h2>
@@ -1198,10 +1434,10 @@ reviewed with your healthcare provider.
       const [user, setUser] = useState(() => loadData(STORAGE_KEYS.USER, null));
       const [logs, setLogs] = useState(() => loadData(STORAGE_KEYS.LOGS, []));
       const [screen, setScreen] = useState('dashboard');
-      const [showCheckin, setShowCheckin] = useState(false);
       
-      const handleOnboardingComplete = (userData) => {
+      const handleOnboardingComplete = (userData, demoLogs) => {
         setUser(userData);
+        if (demoLogs) setLogs(demoLogs);
         setIsOnboarded(true);
       };
       
@@ -1217,10 +1453,7 @@ reviewed with your healthcare provider.
         newLogs.sort((a, b) => new Date(a.date) - new Date(b.date));
         setLogs(newLogs);
         saveData(STORAGE_KEYS.LOGS, newLogs);
-        setShowCheckin(false);
       };
-      
-      const todayLog = logs.find(l => l.date === new Date().toISOString().split('T')[0]);
       
       if (!isOnboarded) {
         return <OnboardingFlow onComplete={handleOnboardingComplete} />;
@@ -1228,20 +1461,11 @@ reviewed with your healthcare provider.
       
       return (
         <div className="min-h-screen bg-gray-50">
-          {showCheckin && (
-            <DailyCheckin 
-              user={user} 
-              onSave={handleSaveLog} 
-              onCancel={() => setShowCheckin(false)}
-              existingLog={todayLog}
-            />
-          )}
-          
           {screen === 'dashboard' && (
             <Dashboard 
               user={user} 
               logs={logs} 
-              onCheckin={() => setShowCheckin(true)}
+              onCheckin={handleSaveLog}
               onViewInsights={() => setScreen('insights')}
               onViewReport={() => setScreen('report')}
             />
