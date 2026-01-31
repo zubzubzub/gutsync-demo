@@ -10,7 +10,7 @@
   <div class="bg-white rounded-xl p-8 max-w-md w-full shadow-lg text-center">
     <h1 class="text-2xl font-bold text-gray-900 mb-4">🧪 Demo Data Loader</h1>
     <p class="text-gray-600 mb-6">
-      This will populate GutSync with 14 days of sample symptom data 
+      This will populate GutSync with 30 days of realistic sample symptom data 
       to demonstrate the app's features.
     </p>
     
@@ -32,92 +32,121 @@
   </div>
   
   <script>
+    function calculateHBI(log) {
+      let score = 0;
+      score += Math.min(4, Math.floor((5 - (log.fatigue || 3)) * 1.33));
+      score += Math.min(3, Math.floor((log.painLevel || 0) / 3.33));
+      score += Math.max(0, (log.bowelCount || 0) - 2);
+      return score;
+    }
+    
     function loadDemoData() {
-      // Demo user profile
+      // Demo user profile - diagnosed 2 years ago
+      const twoYearsAgo = new Date();
+      twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+      
       const user = {
-        diagnosisDate: '2019-06-15',
-        medications: [
-          'Humira (adalimumab)',
-          'Prednisone',
-          'Mesalamine'
-        ],
-        medPhoto: null,
+        diagnosisDate: twoYearsAgo.toISOString().split('T')[0],
+        medications: ['Humira (adalimumab)', 'Prednisone'],
         createdAt: new Date().toISOString()
       };
       
-      // Generate 14 days of varied symptom data
+      // Generate 30 days of realistic data
       const logs = [];
       const today = new Date();
       
-      // Create a realistic pattern with some fluctuation
-      const patterns = [
-        // Good days
-        { bowelCount: 2, bristolType: 4, painLevel: 1, fatigue: 4, extras: [] },
-        { bowelCount: 3, bristolType: 4, painLevel: 2, fatigue: 4, extras: [] },
-        { bowelCount: 2, bristolType: 3, painLevel: 1, fatigue: 5, extras: [] },
-        // Okay days
-        { bowelCount: 4, bristolType: 5, painLevel: 3, fatigue: 3, extras: [] },
-        { bowelCount: 3, bristolType: 5, painLevel: 4, fatigue: 3, extras: ['joint_pain'] },
-        { bowelCount: 4, bristolType: 5, painLevel: 3, fatigue: 3, extras: [] },
-        // Slightly elevated days (simulating mild flare)
-        { bowelCount: 5, bristolType: 6, painLevel: 5, fatigue: 2, extras: ['joint_pain', 'fatigue'] },
-        { bowelCount: 6, bristolType: 6, painLevel: 6, fatigue: 2, extras: ['joint_pain'] },
-        { bowelCount: 5, bristolType: 6, painLevel: 5, fatigue: 2, extras: ['nausea'] },
-        // Recovery
-        { bowelCount: 4, bristolType: 5, painLevel: 4, fatigue: 3, extras: [] },
-        { bowelCount: 3, bristolType: 5, painLevel: 3, fatigue: 3, extras: [] },
-        // Back to good
-        { bowelCount: 3, bristolType: 4, painLevel: 2, fatigue: 4, extras: [] },
-        { bowelCount: 2, bristolType: 4, painLevel: 2, fatigue: 4, extras: [] },
-        { bowelCount: 3, bristolType: 4, painLevel: 1, fatigue: 4, extras: [] }
-      ];
-      
-      for (let i = 13; i >= 0; i--) {
+      for (let i = 29; i >= 0; i--) {
         const date = new Date(today);
         date.setDate(date.getDate() - i);
-        const dateStr = date.toISOString().split('T')[0];
         
-        const pattern = patterns[13 - i];
-        const log = {
-          date: dateStr,
+        let painLevel, bowelCount, bristolType, fatigue, extras, medsTaken;
+        
+        // Days 29-20: Normal baseline period
+        if (i >= 20) {
+          painLevel = Math.floor(Math.random() * 2) + 1; // 1-2
+          bowelCount = Math.floor(Math.random() * 3) + 2; // 2-4
+          bristolType = Math.floor(Math.random() * 2) + 4; // 4-5
+          fatigue = Math.floor(Math.random() * 2) + 4; // 4-5 (good energy)
+          extras = Math.random() > 0.85 ? ['fatigue'] : [];
+          medsTaken = Math.random() > 0.1 
+            ? ['Humira (adalimumab)', 'Prednisone'] 
+            : ['Humira (adalimumab)'];
+        }
+        // Days 19-16: Building up to flare
+        else if (i >= 16) {
+          painLevel = Math.floor(Math.random() * 2) + 3; // 3-4
+          bowelCount = Math.floor(Math.random() * 2) + 4; // 4-5
+          bristolType = Math.floor(Math.random() * 2) + 5; // 5-6
+          fatigue = 3;
+          extras = Math.random() > 0.6 ? ['joint_pain'] : [];
+          medsTaken = ['Humira (adalimumab)', 'Prednisone'];
+        }
+        // Days 15-12: Mini-flare episode (8-10 days ago)
+        else if (i >= 8 && i <= 11) {
+          painLevel = Math.floor(Math.random() * 3) + 5; // 5-7
+          bowelCount = Math.floor(Math.random() * 3) + 6; // 6-8
+          bristolType = Math.floor(Math.random() * 2) + 6; // 6-7
+          fatigue = Math.floor(Math.random() * 2) + 1; // 1-2 (exhausted)
+          extras = ['fatigue', 'cramping'];
+          if (Math.random() > 0.5) extras.push('joint_pain');
+          if (Math.random() > 0.7) extras.push('nausea');
+          if (i === 9) extras.push('blood');
+          medsTaken = ['Humira (adalimumab)', 'Prednisone'];
+        }
+        // Days 7-4: Recovery period
+        else if (i >= 4 && i <= 7) {
+          painLevel = Math.floor(Math.random() * 2) + 3; // 3-4
+          bowelCount = Math.floor(Math.random() * 2) + 3; // 3-4
+          bristolType = Math.floor(Math.random() * 2) + 4; // 4-5
+          fatigue = 3;
+          extras = Math.random() > 0.7 ? ['fatigue'] : [];
+          medsTaken = Math.random() > 0.15 
+            ? ['Humira (adalimumab)', 'Prednisone'] 
+            : ['Prednisone'];
+        }
+        // Days 3-0: Recent slight uptick (flare risk ~25-40%)
+        else {
+          const dayFactor = 3 - i;
+          painLevel = Math.min(2 + dayFactor + Math.floor(Math.random() * 2), 5);
+          bowelCount = Math.min(3 + Math.floor(dayFactor * 0.7) + Math.floor(Math.random() * 2), 5);
+          bristolType = Math.min(4 + Math.floor(dayFactor * 0.5), 6);
+          fatigue = Math.max(4 - dayFactor, 2);
+          extras = dayFactor >= 2 ? ['fatigue'] : [];
+          if (dayFactor >= 2 && Math.random() > 0.5) extras.push('joint_pain');
+          medsTaken = ['Humira (adalimumab)', 'Prednisone'];
+        }
+        
+        logs.push({
+          date: date.toISOString().split('T')[0],
           timestamp: date.toISOString(),
-          bowelCount: pattern.bowelCount,
-          bristolType: pattern.bristolType,
-          painLevel: pattern.painLevel,
-          painLocation: pattern.painLevel > 3 ? 'rlq' : null,
-          fatigue: pattern.fatigue,
-          medsTaken: Math.random() > 0.15 
-            ? user.medications.slice(0, Math.random() > 0.3 ? 3 : 2)
-            : user.medications.slice(0, 1),
-          extras: pattern.extras,
+          painLevel,
+          bowelCount,
+          bristolType,
+          fatigue,
+          medsTaken,
+          extras,
           notes: '',
-          hbi: calculateHBI(pattern)
-        };
-        
-        logs.push(log);
-      }
-      
-      function calculateHBI(log) {
-        let score = 0;
-        score += Math.min(4, Math.floor((5 - (log.fatigue || 3)) * 1.33));
-        score += Math.min(3, Math.floor((log.painLevel || 0) / 3.33));
-        score += Math.max(0, (log.bowelCount || 0) - 2);
-        return score;
+          hbi: calculateHBI({ painLevel, bowelCount, fatigue })
+        });
       }
       
       // Save to localStorage
       localStorage.setItem('gutsync_user', JSON.stringify(user));
       localStorage.setItem('gutsync_logs', JSON.stringify(logs));
       localStorage.setItem('gutsync_onboarded', JSON.stringify(true));
+      localStorage.setItem('gutsync_welcomed', JSON.stringify(true));
       
       document.getElementById('status').innerHTML = `
         <div class="text-green-600 font-medium">✅ Demo data loaded!</div>
-        <div class="mt-2">14 days of symptom data generated including:</div>
+        <div class="mt-2">30 days of symptom data generated including:</div>
         <ul class="text-left mt-2 space-y-1">
-          <li>• Mild flare episode (days 7-9)</li>
-          <li>• Recovery pattern (days 10-14)</li>
-          <li>• Varying medication adherence</li>
-          <li>• Joint pain correlation</li>
+          <li>• Normal baseline period (days 20-29)</li>
+          <li>• Pre-flare buildup (days 16-19)</li>
+          <li>• Mini-flare episode (days 8-11, ~8-10 days ago)</li>
+          <li>• Recovery period (days 4-7)</li>
+          <li>• Recent uptick (days 0-3) → ~32% flare risk</li>
+          <li>• Varied medication adherence</li>
+          <li>• Extraintestinal symptoms (joint pain, fatigue)</li>
         </ul>
         <a href="index.html" class="inline-block mt-4 text-green-600 font-medium underline">
           Open App →
@@ -129,6 +158,7 @@
       localStorage.removeItem('gutsync_user');
       localStorage.removeItem('gutsync_logs');
       localStorage.removeItem('gutsync_onboarded');
+      localStorage.removeItem('gutsync_welcomed');
       
       document.getElementById('status').innerHTML = `
         <div class="text-red-600 font-medium">🗑️ All data cleared!</div>
