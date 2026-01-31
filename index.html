@@ -9,17 +9,30 @@
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <script>
     tailwind.config = {
       theme: {
         extend: {
-          fontFamily: { sans: ['Inter', 'sans-serif'] },
+          fontFamily: { sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'] },
           colors: {
-            gut: {
-              50: '#f0fdf4', 100: '#dcfce7', 200: '#bbf7d0', 300: '#86efac',
-              400: '#4ade80', 500: '#22c55e', 600: '#16a34a', 700: '#15803d',
-              800: '#166534', 900: '#14532d'
+            dark: {
+              950: '#000000',
+              900: '#0D0D0D',
+              800: '#1A1A1A',
+              700: '#242424',
+              600: '#2D2D2D',
+              500: '#404040'
+            },
+            teal: {
+              400: '#2DD4BF',
+              500: '#00D4AA',
+              600: '#00B894'
+            },
+            accent: {
+              purple: '#8B5CF6',
+              blue: '#06B6D4',
+              pink: '#EC4899'
             }
           }
         }
@@ -28,21 +41,58 @@
   </script>
   <style>
     * { -webkit-tap-highlight-color: transparent; }
-    body { font-family: 'Inter', sans-serif; }
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: #0D0D0D; }
     .safe-area-bottom { padding-bottom: env(safe-area-inset-bottom, 20px); }
+    
+    /* Animations */
     @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes pulse-ring { 0% { transform: scale(0.95); opacity: 0.8; } 50% { transform: scale(1.05); opacity: 0.4; } 100% { transform: scale(0.95); opacity: 0.8; } }
     @keyframes mic-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+    @keyframes glow { 0%, 100% { box-shadow: 0 0 20px rgba(0, 212, 170, 0.3); } 50% { box-shadow: 0 0 40px rgba(0, 212, 170, 0.6); } }
+    @keyframes ring-spin { from { stroke-dashoffset: 283; } to { stroke-dashoffset: 0; } }
+    @keyframes gradient-shift { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+    
     .slide-up { animation: slideUp 0.3s ease-out; }
-    .fade-in { animation: fadeIn 0.3s ease-out; }
-    .bristol-btn { transition: all 0.15s ease; }
-    .bristol-btn:active { transform: scale(0.95); }
+    .fade-in { animation: fadeIn 0.5s ease-out; }
+    .fade-in-up { animation: fadeInUp 0.6s ease-out forwards; opacity: 0; }
+    .delay-100 { animation-delay: 0.1s; }
+    .delay-200 { animation-delay: 0.2s; }
+    .delay-300 { animation-delay: 0.3s; }
+    .delay-400 { animation-delay: 0.4s; }
+    .delay-500 { animation-delay: 0.5s; }
     .voice-btn-ring { animation: pulse-ring 2s ease-in-out infinite; }
     .mic-recording { animation: mic-pulse 1s ease-in-out infinite; }
+    .glow-teal { animation: glow 2s ease-in-out infinite; }
+    
+    /* Ring Progress */
+    .ring-progress { transform: rotate(-90deg); transform-origin: 50% 50%; }
+    .ring-bg { stroke: #2D2D2D; }
+    .ring-fill { stroke-linecap: round; transition: stroke-dashoffset 1s ease-out; }
+    
+    /* Gradient text */
+    .gradient-text {
+      background: linear-gradient(135deg, #00D4AA, #06B6D4, #8B5CF6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    
+    /* Glass card effect */
+    .glass-card {
+      background: rgba(26, 26, 26, 0.8);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: #1A1A1A; }
+    ::-webkit-scrollbar-thumb { background: #404040; border-radius: 2px; }
   </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
+<body class="bg-dark-900 min-h-screen text-white">
   <div id="root"></div>
   
   <script type="text/babel">
@@ -52,7 +102,8 @@
     const STORAGE_KEYS = {
       USER: 'gutsync_user',
       LOGS: 'gutsync_logs',
-      ONBOARDED: 'gutsync_onboarded'
+      ONBOARDED: 'gutsync_onboarded',
+      WELCOMED: 'gutsync_welcomed'
     };
     
     const loadData = (key, defaultValue) => {
@@ -68,13 +119,13 @@
     
     // Bristol Stool Scale definitions
     const BRISTOL_SCALE = [
-      { type: 1, name: 'Separate hard lumps', desc: 'Constipation', emoji: '🔴', color: 'bg-red-500' },
-      { type: 2, name: 'Lumpy sausage', desc: 'Mild constipation', emoji: '🟠', color: 'bg-orange-500' },
-      { type: 3, name: 'Cracked sausage', desc: 'Normal', emoji: '🟡', color: 'bg-yellow-500' },
-      { type: 4, name: 'Smooth snake', desc: 'Ideal', emoji: '🟢', color: 'bg-green-500' },
-      { type: 5, name: 'Soft blobs', desc: 'Trending loose', emoji: '🟡', color: 'bg-yellow-500' },
-      { type: 6, name: 'Fluffy, ragged', desc: 'Diarrhea', emoji: '🟠', color: 'bg-orange-500' },
-      { type: 7, name: 'Entirely liquid', desc: 'Severe', emoji: '🔴', color: 'bg-red-500' }
+      { type: 1, name: 'Separate hard lumps', desc: 'Constipation', color: 'bg-red-500' },
+      { type: 2, name: 'Lumpy sausage', desc: 'Mild constipation', color: 'bg-orange-500' },
+      { type: 3, name: 'Cracked sausage', desc: 'Normal', color: 'bg-yellow-500' },
+      { type: 4, name: 'Smooth snake', desc: 'Ideal', color: 'bg-teal-500' },
+      { type: 5, name: 'Soft blobs', desc: 'Trending loose', color: 'bg-yellow-500' },
+      { type: 6, name: 'Fluffy, ragged', desc: 'Diarrhea', color: 'bg-orange-500' },
+      { type: 7, name: 'Entirely liquid', desc: 'Severe', color: 'bg-red-500' }
     ];
     
     const EXTRA_SYMPTOMS = [
@@ -90,15 +141,6 @@
       { id: 'blood', label: 'Blood in stool', icon: '🩸' }
     ];
     
-    const PAIN_LOCATIONS = [
-      { id: 'rlq', label: 'Right Lower', x: 75, y: 65 },
-      { id: 'llq', label: 'Left Lower', x: 25, y: 65 },
-      { id: 'ruq', label: 'Right Upper', x: 75, y: 35 },
-      { id: 'luq', label: 'Left Upper', x: 25, y: 35 },
-      { id: 'periumbilical', label: 'Around Navel', x: 50, y: 50 },
-      { id: 'epigastric', label: 'Upper Middle', x: 50, y: 25 }
-    ];
-    
     const DEFAULT_MEDICATIONS = [
       'Humira (adalimumab)',
       'Remicade (infliximab)',
@@ -111,7 +153,7 @@
       'Mesalamine'
     ];
     
-    // ============ AI INSIGHTS ENGINE (Rule-based) ============
+    // ============ AI INSIGHTS ENGINE ============
     const generateInsights = (logs, user) => {
       if (logs.length < 3) {
         return { 
@@ -129,7 +171,6 @@
       const looseStools = recent.filter(l => l.bristolType >= 6).length;
       const avgFatigue = recent.reduce((sum, l) => sum + (5 - (l.fatigue || 3)), 0) / recent.length;
       
-      // Calculate flare risk score (as percentage for 24-72 hour prediction window)
       let riskScore = 0;
       if (avgPain > 5) riskScore += 25;
       else if (avgPain > 3) riskScore += 12;
@@ -140,7 +181,6 @@
       if (avgFatigue > 2) riskScore += 15;
       else if (avgFatigue > 1) riskScore += 8;
       
-      // Check for trends (rising symptoms = higher risk)
       if (recent.length >= 3) {
         const lastThree = recent.slice(-3);
         const painTrend = lastThree[2]?.painLevel - lastThree[0]?.painLevel;
@@ -151,7 +191,6 @@
         if (bowelTrend > 2) riskScore += 10;
       }
       
-      // Clamp to realistic clinical ranges
       const riskPercent = Math.min(Math.max(riskScore, 5), 85);
       
       if (riskPercent >= 50) {
@@ -160,8 +199,8 @@
           riskLevel: 'high',
           riskPercent,
           message: 'Elevated flare risk detected',
-          details: `Your symptoms suggest ${riskPercent}% chance of a flare in the next 24-72 hours. Pain averaging ${avgPain.toFixed(1)}/10 with ${looseStools} days of loose stools.`,
-          recommendation: 'Contact your GI, prepare flare kit, rest and hydrate'
+          details: `Your symptoms suggest ${riskPercent}% chance of a flare in the next 24-72 hours.`,
+          recommendation: 'Contact your GI, prepare flare kit'
         };
       } else if (riskPercent >= 25) {
         return {
@@ -169,39 +208,36 @@
           riskLevel: 'medium',
           riskPercent,
           message: 'Moderate symptom activity',
-          details: `${riskPercent}% flare risk in next 24-72 hours. Average pain ${avgPain.toFixed(1)}/10. Monitor closely.`,
-          recommendation: 'Monitor closely, consider reducing stress, stay hydrated'
+          details: `${riskPercent}% flare risk in next 24-72 hours. Monitor closely.`,
+          recommendation: 'Monitor closely, stay hydrated'
         };
       } else {
         return {
           status: 'good',
           riskLevel: 'low',
           riskPercent,
-          message: 'Looking good! Low flare risk 💚',
-          details: `Only ${riskPercent}% flare risk. Pain averaging ${avgPain.toFixed(1)}/10 with ${avgBowel.toFixed(1)} BM/day.`,
-          recommendation: 'Continue tracking, stay hydrated, maintain routine'
+          message: 'Looking stable',
+          details: `Only ${riskPercent}% flare risk. Keep up the good work!`,
+          recommendation: 'Continue tracking, maintain routine'
         };
       }
     };
     
     const calculateHBI = (log) => {
-      // Harvey-Bradshaw Index estimate
       let score = 0;
-      score += Math.min(4, Math.floor((5 - (log.fatigue || 3)) * 1.33)); // General well-being 0-4
-      score += Math.min(3, Math.floor((log.painLevel || 0) / 3.33)); // Pain 0-3
-      score += Math.max(0, (log.bowelCount || 0) - 2); // Liquid stools beyond 2
+      score += Math.min(4, Math.floor((5 - (log.fatigue || 3)) * 1.33));
+      score += Math.min(3, Math.floor((log.painLevel || 0) / 3.33));
+      score += Math.max(0, (log.bowelCount || 0) - 2);
       return score;
     };
     
-    // Find last flare (defined as high pain + high bowel count day)
     const findLastFlare = (logs) => {
       const sortedLogs = [...logs].sort((a, b) => new Date(b.date) - new Date(a.date));
       for (const log of sortedLogs) {
         if ((log.painLevel >= 6 && log.bowelCount >= 5) || log.bristolType >= 6 && log.painLevel >= 5) {
           const flareDate = new Date(log.date);
           const today = new Date();
-          const diffTime = today - flareDate;
-          const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+          const diffDays = Math.floor((today - flareDate) / (1000 * 60 * 60 * 24));
           return { date: log.date, daysAgo: diffDays };
         }
       }
@@ -231,19 +267,11 @@
                 finalTranscript += event.results[i][0].transcript;
               }
             }
-            if (finalTranscript) {
-              setTranscript(finalTranscript);
-            }
+            if (finalTranscript) setTranscript(finalTranscript);
           };
           
-          recognitionRef.current.onend = () => {
-            setIsListening(false);
-          };
-          
-          recognitionRef.current.onerror = (event) => {
-            console.error('Speech recognition error:', event.error);
-            setIsListening(false);
-          };
+          recognitionRef.current.onend = () => setIsListening(false);
+          recognitionRef.current.onerror = () => setIsListening(false);
         }
       }, []);
       
@@ -265,65 +293,201 @@
       return { isListening, transcript, isSupported, startListening, stopListening, setTranscript };
     };
     
-    // Parse voice transcript into symptom data
     const parseVoiceInput = (transcript) => {
       const text = transcript.toLowerCase();
-      const result = {
-        painLevel: null,
-        bowelCount: null,
-        bristolType: null,
-        extras: [],
-        notes: transcript
-      };
+      const result = { painLevel: null, bowelCount: null, bristolType: null, extras: [], notes: transcript };
       
-      // Pain level parsing
       const painMatch = text.match(/pain.{0,10}(\d+)|(\d+).{0,10}(out of|\/)\s*10|level.{0,5}(\d+)/);
       if (painMatch) {
         const num = parseInt(painMatch[1] || painMatch[2] || painMatch[4]);
         if (num >= 0 && num <= 10) result.painLevel = num;
       }
-      if (text.includes('no pain') || text.includes('feeling good') || text.includes('feeling great')) result.painLevel = result.painLevel || 1;
-      if (text.includes('mild pain') || text.includes('little pain')) result.painLevel = result.painLevel || 3;
+      if (text.includes('no pain') || text.includes('feeling good')) result.painLevel = result.painLevel || 1;
+      if (text.includes('mild pain')) result.painLevel = result.painLevel || 3;
       if (text.includes('moderate pain')) result.painLevel = result.painLevel || 5;
-      if (text.includes('severe pain') || text.includes('bad pain') || text.includes('really hurts')) result.painLevel = result.painLevel || 7;
-      if (text.includes('worst pain') || text.includes('terrible')) result.painLevel = result.painLevel || 9;
+      if (text.includes('severe pain') || text.includes('bad pain')) result.painLevel = result.painLevel || 7;
       
-      // Bowel movements
       const bmMatch = text.match(/(\d+)\s*(bowel|bm|bathroom|times|movements?)/);
-      if (bmMatch) {
-        result.bowelCount = parseInt(bmMatch[1]);
-      }
-      if (text.includes('went once') || text.includes('one time')) result.bowelCount = result.bowelCount || 1;
-      if (text.includes('went twice') || text.includes('two times')) result.bowelCount = result.bowelCount || 2;
-      if (text.includes('three times')) result.bowelCount = result.bowelCount || 3;
-      if (text.includes('many times') || text.includes('lot')) result.bowelCount = result.bowelCount || 5;
+      if (bmMatch) result.bowelCount = parseInt(bmMatch[1]);
       
-      // Bristol type
       if (text.includes('liquid') || text.includes('watery')) result.bristolType = 7;
       else if (text.includes('loose') || text.includes('soft')) result.bristolType = 6;
       else if (text.includes('normal') || text.includes('formed')) result.bristolType = 4;
       else if (text.includes('hard') || text.includes('constipated')) result.bristolType = 2;
       
-      // Extra symptoms
-      if (text.includes('joint') || text.includes('joints hurt')) result.extras.push('joint_pain');
+      if (text.includes('joint')) result.extras.push('joint_pain');
       if (text.includes('skin') || text.includes('rash')) result.extras.push('skin_issues');
-      if (text.includes('eye') || text.includes('eyes')) result.extras.push('eye_problems');
-      if (text.includes('nausea') || text.includes('nauseous') || text.includes('queasy')) result.extras.push('nausea');
-      if (text.includes('mouth sore') || text.includes('ulcer')) result.extras.push('mouth_sores');
-      if (text.includes('fever') || text.includes('temperature')) result.extras.push('fever');
-      if (text.includes('tired') || text.includes('fatigue') || text.includes('exhausted')) result.extras.push('fatigue');
-      if (text.includes('bloat') || text.includes('bloating')) result.extras.push('bloating');
-      if (text.includes('cramp') || text.includes('cramping')) result.extras.push('cramping');
+      if (text.includes('nausea')) result.extras.push('nausea');
+      if (text.includes('tired') || text.includes('fatigue')) result.extras.push('fatigue');
+      if (text.includes('bloat')) result.extras.push('bloating');
+      if (text.includes('cramp')) result.extras.push('cramping');
       if (text.includes('blood')) result.extras.push('blood');
       
       return result;
     };
     
-    // ============ COMPONENTS ============
+    // ============ RING PROGRESS COMPONENT ============
+    const RingProgress = ({ percent, size = 120, strokeWidth = 8, colorClass = 'stroke-teal-500', label, sublabel }) => {
+      const radius = (size - strokeWidth) / 2;
+      const circumference = 2 * Math.PI * radius;
+      const offset = circumference - (percent / 100) * circumference;
+      
+      return (
+        <div className="relative inline-flex items-center justify-center">
+          <svg width={size} height={size} className="ring-progress">
+            <circle
+              className="ring-bg"
+              cx={size/2}
+              cy={size/2}
+              r={radius}
+              strokeWidth={strokeWidth}
+              fill="none"
+            />
+            <circle
+              className={`ring-fill ${colorClass}`}
+              cx={size/2}
+              cy={size/2}
+              r={radius}
+              strokeWidth={strokeWidth}
+              fill="none"
+              strokeDasharray={circumference}
+              strokeDashoffset={offset}
+            />
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className="text-2xl font-bold text-white">{label}</span>
+            {sublabel && <span className="text-xs text-gray-400">{sublabel}</span>}
+          </div>
+        </div>
+      );
+    };
     
-    // Single-Page Onboarding
+    // ============ WELCOME SCREEN ============
+    const WelcomeScreen = ({ onGetStarted }) => {
+      return (
+        <div className="min-h-screen bg-dark-900 flex flex-col">
+          {/* Hero Section */}
+          <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
+            {/* Logo */}
+            <div className="fade-in-up mb-6">
+              <div className="relative">
+                <svg width="80" height="80" viewBox="0 0 80 80" className="mx-auto">
+                  {/* Gut wave icon */}
+                  <defs>
+                    <linearGradient id="logoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stopColor="#00D4AA" />
+                      <stop offset="50%" stopColor="#06B6D4" />
+                      <stop offset="100%" stopColor="#8B5CF6" />
+                    </linearGradient>
+                  </defs>
+                  <circle cx="40" cy="40" r="38" fill="none" stroke="url(#logoGradient)" strokeWidth="2" />
+                  <path 
+                    d="M20 40 Q30 25 40 40 Q50 55 60 40" 
+                    fill="none" 
+                    stroke="url(#logoGradient)" 
+                    strokeWidth="3" 
+                    strokeLinecap="round"
+                  />
+                  <circle cx="25" cy="40" r="3" fill="#00D4AA" />
+                  <circle cx="55" cy="40" r="3" fill="#8B5CF6" />
+                </svg>
+              </div>
+            </div>
+            
+            {/* Title */}
+            <h1 className="fade-in-up delay-100 text-4xl font-bold gradient-text mb-2">GutSync</h1>
+            <p className="fade-in-up delay-200 text-gray-400 text-lg mb-10">AI-powered Crohn's management</p>
+            
+            {/* Feature List */}
+            <div className="fade-in-up delay-300 w-full max-w-sm space-y-4 mb-10">
+              <div className="flex items-center gap-4 p-4 glass-card rounded-2xl">
+                <div className="w-12 h-12 bg-gradient-to-br from-teal-500/20 to-teal-500/5 rounded-xl flex items-center justify-center">
+                  <span className="text-2xl">🎙️</span>
+                </div>
+                <div>
+                  <div className="font-semibold text-white">Voice Tracking</div>
+                  <div className="text-sm text-gray-400">Log symptoms with your voice</div>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-4 p-4 glass-card rounded-2xl">
+                <div className="w-12 h-12 bg-gradient-to-br from-accent-purple/20 to-accent-purple/5 rounded-xl flex items-center justify-center">
+                  <span className="text-2xl">📊</span>
+                </div>
+                <div>
+                  <div className="font-semibold text-white">Flare Prediction</div>
+                  <div className="text-sm text-gray-400">Predict flares up to 72 hours early</div>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-4 p-4 glass-card rounded-2xl">
+                <div className="w-12 h-12 bg-gradient-to-br from-accent-blue/20 to-accent-blue/5 rounded-xl flex items-center justify-center">
+                  <span className="text-2xl">👨‍⚕️</span>
+                </div>
+                <div>
+                  <div className="font-semibold text-white">Doctor Reports</div>
+                  <div className="text-sm text-gray-400">Generate reports for your GI</div>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-4 p-4 glass-card rounded-2xl">
+                <div className="w-12 h-12 bg-gradient-to-br from-accent-pink/20 to-accent-pink/5 rounded-xl flex items-center justify-center">
+                  <span className="text-2xl">🔗</span>
+                </div>
+                <div>
+                  <div className="font-semibold text-white">Wearable Sync</div>
+                  <div className="text-sm text-gray-400">Connect Apple Health & WHOOP</div>
+                </div>
+              </div>
+            </div>
+            
+            {/* Integrations */}
+            <div className="fade-in-up delay-400 mb-8">
+              <p className="text-xs text-gray-500 text-center mb-3">INTEGRATIONS</p>
+              <div className="flex gap-3">
+                <div className="px-4 py-2 bg-dark-800 rounded-full border border-dark-600 text-sm text-gray-300 flex items-center gap-2">
+                  <span className="text-red-400">♥</span> Apple Health
+                </div>
+                <div className="px-4 py-2 bg-dark-800 rounded-full border border-dark-600 text-sm text-gray-300">
+                  WHOOP
+                </div>
+                <div className="px-4 py-2 bg-dark-800 rounded-full border border-dark-600 text-sm text-gray-300">
+                  Oura
+                </div>
+              </div>
+            </div>
+            
+            {/* Impact Stat */}
+            <div className="fade-in-up delay-500 text-center mb-10">
+              <div className="inline-block px-6 py-3 bg-gradient-to-r from-teal-500/10 to-accent-purple/10 rounded-2xl border border-teal-500/20">
+                <span className="text-teal-400 font-semibold">40% fewer ER visits</span>
+                <span className="text-gray-400"> reported by patients using symptom trackers</span>
+              </div>
+            </div>
+          </div>
+          
+          {/* Bottom CTA */}
+          <div className="px-6 pb-8 safe-area-bottom">
+            <button
+              onClick={onGetStarted}
+              className="w-full py-4 bg-gradient-to-r from-teal-500 to-accent-blue rounded-2xl font-semibold text-lg text-white shadow-lg shadow-teal-500/25 hover:shadow-teal-500/40 transition-all active:scale-[0.98]"
+            >
+              Get Started
+            </button>
+            <p className="text-center text-xs text-gray-500 mt-4 flex items-center justify-center gap-2">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+              Your data stays on your device
+            </p>
+          </div>
+        </div>
+      );
+    };
+    
+    // ============ ONBOARDING FLOW ============
     const OnboardingFlow = ({ onComplete }) => {
-      // Pre-populate with demo data
       const twoYearsAgo = new Date();
       twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
       const defaultDate = twoYearsAgo.toISOString().split('T')[0];
@@ -338,23 +502,6 @@
         );
       };
       
-      const finishOnboarding = () => {
-        const userData = {
-          diagnosisDate,
-          medications,
-          createdAt: new Date().toISOString()
-        };
-        saveData(STORAGE_KEYS.USER, userData);
-        saveData(STORAGE_KEYS.ONBOARDED, true);
-        
-        // Add some demo log data for a better first experience
-        const demoLogs = generateDemoLogs();
-        saveData(STORAGE_KEYS.LOGS, demoLogs);
-        
-        onComplete(userData, demoLogs);
-      };
-      
-      // Generate realistic demo logs
       const generateDemoLogs = () => {
         const logs = [];
         const today = new Date();
@@ -363,7 +510,6 @@
           const date = new Date(today);
           date.setDate(date.getDate() - i);
           
-          // Simulate a mini-flare around 8 days ago
           const isFlareDay = i >= 7 && i <= 9;
           const isRecovery = i >= 4 && i <= 6;
           
@@ -400,35 +546,46 @@
         return logs;
       };
       
+      const finishOnboarding = () => {
+        const userData = { diagnosisDate, medications, createdAt: new Date().toISOString() };
+        saveData(STORAGE_KEYS.USER, userData);
+        saveData(STORAGE_KEYS.ONBOARDED, true);
+        
+        const demoLogs = generateDemoLogs();
+        saveData(STORAGE_KEYS.LOGS, demoLogs);
+        
+        onComplete(userData, demoLogs);
+      };
+      
       return (
-        <div className="min-h-screen bg-gradient-to-br from-gut-50 to-white p-6 fade-in">
+        <div className="min-h-screen bg-dark-900 p-6 fade-in">
           {/* Header */}
           <div className="text-center mb-8 pt-8">
-            <div className="text-6xl mb-4">🌿</div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome to GutSync</h1>
-            <p className="text-gray-600">Your AI-powered Crohn's companion</p>
+            <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-teal-500 to-accent-purple rounded-2xl flex items-center justify-center">
+              <span className="text-3xl">⚕️</span>
+            </div>
+            <h1 className="text-2xl font-bold text-white mb-2">Quick Setup</h1>
+            <p className="text-gray-400">Let's personalize your experience</p>
           </div>
           
-          {/* Quick Setup Form */}
-          <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Setup</h2>
-            
+          {/* Setup Form */}
+          <div className="bg-dark-800 rounded-2xl p-6 mb-6 border border-dark-700">
             {/* Diagnosis Date */}
             <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-300 mb-2">
                 When were you diagnosed?
               </label>
               <input 
                 type="date"
                 value={diagnosisDate}
                 onChange={(e) => setDiagnosisDate(e.target.value)}
-                className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-gut-500 focus:outline-none"
+                className="w-full p-4 bg-dark-700 border border-dark-600 rounded-xl text-white focus:border-teal-500 focus:outline-none transition"
               />
             </div>
             
             {/* Medications */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-300 mb-2">
                 Current Medications
               </label>
               <div className="space-y-2 max-h-64 overflow-y-auto">
@@ -438,24 +595,23 @@
                     onClick={() => handleMedToggle(med)}
                     className={`w-full p-3 rounded-xl text-left text-sm transition flex items-center justify-between ${
                       medications.includes(med) 
-                        ? 'bg-gut-100 border-2 border-gut-500 text-gut-700' 
-                        : 'bg-gray-50 border-2 border-gray-200 text-gray-700'
+                        ? 'bg-teal-500/20 border border-teal-500/50 text-teal-400' 
+                        : 'bg-dark-700 border border-dark-600 text-gray-300 hover:border-dark-500'
                     }`}
                   >
                     <span>{med}</span>
-                    {medications.includes(med) && <span className="text-gut-600 font-bold">✓</span>}
+                    {medications.includes(med) && <span className="text-teal-400 font-bold">✓</span>}
                   </button>
                 ))}
               </div>
               
-              {/* Custom medication */}
               <div className="flex gap-2 mt-3">
                 <input 
                   type="text"
                   placeholder="Add other medication..."
                   value={customMed}
                   onChange={(e) => setCustomMed(e.target.value)}
-                  className="flex-1 p-3 border-2 border-gray-200 rounded-xl text-sm focus:border-gut-500 focus:outline-none"
+                  className="flex-1 p-3 bg-dark-700 border border-dark-600 rounded-xl text-sm text-white placeholder-gray-500 focus:border-teal-500 focus:outline-none"
                 />
                 <button 
                   onClick={() => { 
@@ -464,7 +620,7 @@
                       setCustomMed(''); 
                     }
                   }}
-                  className="px-4 bg-gray-100 rounded-xl font-medium text-sm hover:bg-gray-200 transition"
+                  className="px-4 bg-dark-700 border border-dark-600 rounded-xl font-medium text-sm text-gray-300 hover:bg-dark-600 transition"
                 >
                   Add
                 </button>
@@ -472,35 +628,12 @@
             </div>
           </div>
           
-          {/* Features Preview */}
-          <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
-            <h3 className="font-semibold text-gray-900 mb-4">What you'll get:</h3>
-            <div className="space-y-3">
-              <div className="flex items-center gap-3">
-                <span className="text-2xl">🎤</span>
-                <span className="text-gray-700">Voice-powered symptom logging</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-2xl">🤖</span>
-                <span className="text-gray-700">AI flare prediction (24-72 hours)</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-2xl">📊</span>
-                <span className="text-gray-700">Trend analysis & insights</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-2xl">📋</span>
-                <span className="text-gray-700">Doctor-ready reports</span>
-              </div>
-            </div>
-          </div>
-          
           {/* Start Button */}
           <button 
             onClick={finishOnboarding}
-            className="w-full bg-gut-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-gut-700 transition shadow-lg"
+            className="w-full py-4 bg-gradient-to-r from-teal-500 to-accent-blue rounded-xl font-semibold text-lg text-white shadow-lg shadow-teal-500/25 hover:shadow-teal-500/40 transition active:scale-[0.98]"
           >
-            Start Tracking 🚀
+            Start Tracking
           </button>
           
           <p className="text-center text-sm text-gray-500 mt-4">
@@ -510,7 +643,7 @@
       );
     };
     
-    // Voice Logging Modal
+    // ============ VOICE LOG MODAL ============
     const VoiceLogModal = ({ isOpen, onClose, onSave, user, existingLog }) => {
       const { isListening, transcript, isSupported, startListening, stopListening, setTranscript } = useVoiceRecognition();
       const [parsedData, setParsedData] = useState(null);
@@ -526,18 +659,11 @@
       });
       
       useEffect(() => {
-        if (transcript) {
-          const parsed = parseVoiceInput(transcript);
-          setParsedData(parsed);
-        }
+        if (transcript) setParsedData(parseVoiceInput(transcript));
       }, [transcript]);
       
       const handleVoiceToggle = () => {
-        if (isListening) {
-          stopListening();
-        } else {
-          startListening();
-        }
+        isListening ? stopListening() : startListening();
       };
       
       const handleSaveVoice = () => {
@@ -551,11 +677,7 @@
           medsTaken: user?.medications || [],
           extras: parsedData?.extras || [],
           notes: transcript,
-          hbi: calculateHBI({ 
-            bowelCount: parsedData?.bowelCount || 2, 
-            painLevel: parsedData?.painLevel || 3, 
-            fatigue: 3 
-          })
+          hbi: calculateHBI({ bowelCount: parsedData?.bowelCount || 2, painLevel: parsedData?.painLevel || 3, fatigue: 3 })
         };
         onSave(log);
         onClose();
@@ -573,44 +695,41 @@
       };
       
       const simulateTranscription = () => {
-        // For demo purposes when speech API isn't available
         const demoTranscripts = [
           "Pain level about 4, went to the bathroom 3 times today, stools were a bit loose, feeling some fatigue",
           "Feeling pretty good today, mild pain around 2, normal bowel movements twice",
           "Not great today, pain is about 6 out of 10, had 5 bowel movements, liquid stools, also feeling nauseous"
         ];
-        const randomTranscript = demoTranscripts[Math.floor(Math.random() * demoTranscripts.length)];
-        setTranscript(randomTranscript);
+        setTranscript(demoTranscripts[Math.floor(Math.random() * demoTranscripts.length)]);
       };
       
       if (!isOpen) return null;
       
       return (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center slide-up">
-          <div className="bg-white rounded-t-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-end justify-center slide-up">
+          <div className="bg-dark-800 rounded-t-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto border-t border-dark-600">
             {/* Header */}
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-              <h2 className="font-semibold text-lg">Log Symptoms</h2>
-              <button onClick={onClose} className="text-gray-500 text-2xl">&times;</button>
+            <div className="sticky top-0 bg-dark-800 border-b border-dark-700 px-6 py-4 flex items-center justify-between">
+              <h2 className="font-semibold text-lg text-white">Log Symptoms</h2>
+              <button onClick={onClose} className="text-gray-400 text-2xl hover:text-white transition">&times;</button>
             </div>
             
             <div className="p-6">
               {!showManualForm ? (
                 <>
-                  {/* Voice Recording Section */}
+                  {/* Voice Recording */}
                   <div className="text-center mb-6">
-                    <p className="text-gray-600 mb-6">
+                    <p className="text-gray-400 mb-6">
                       {isListening ? 'Listening... Speak your symptoms' : 'Tap and describe how you\'re feeling'}
                     </p>
                     
-                    {/* Large Voice Button */}
                     <button
                       onClick={handleVoiceToggle}
                       disabled={!isSupported}
                       className={`relative w-32 h-32 rounded-full mx-auto flex items-center justify-center transition-all ${
                         isListening 
                           ? 'bg-red-500 scale-110' 
-                          : 'bg-gut-500 hover:bg-gut-600'
+                          : 'bg-gradient-to-br from-teal-500 to-accent-blue glow-teal'
                       } ${!isSupported ? 'opacity-50' : ''}`}
                     >
                       {isListening && (
@@ -620,72 +739,52 @@
                     </button>
                     
                     {!isSupported && (
-                      <p className="text-orange-600 text-sm mt-4">
-                        Voice not supported in this browser. 
-                        <button 
-                          onClick={simulateTranscription}
-                          className="underline ml-1"
-                        >
-                          Try demo
-                        </button>
+                      <p className="text-orange-400 text-sm mt-4">
+                        Voice not supported. 
+                        <button onClick={simulateTranscription} className="underline ml-1 text-teal-400">Try demo</button>
                       </p>
                     )}
                   </div>
                   
-                  {/* Transcript Display */}
                   {transcript && (
-                    <div className="bg-gray-50 rounded-xl p-4 mb-4">
-                      <p className="text-sm text-gray-500 mb-1">You said:</p>
-                      <p className="text-gray-800">"{transcript}"</p>
+                    <div className="bg-dark-700 rounded-xl p-4 mb-4">
+                      <p className="text-sm text-gray-400 mb-1">You said:</p>
+                      <p className="text-white">"{transcript}"</p>
                     </div>
                   )}
                   
-                  {/* Parsed Results */}
                   {parsedData && transcript && (
-                    <div className="bg-gut-50 rounded-xl p-4 mb-6">
-                      <p className="text-sm text-gut-700 font-medium mb-3">Detected symptoms:</p>
-                      <div className="space-y-2 text-sm">
+                    <div className="bg-teal-500/10 border border-teal-500/30 rounded-xl p-4 mb-6">
+                      <p className="text-sm text-teal-400 font-medium mb-3">Detected symptoms:</p>
+                      <div className="space-y-2 text-sm text-gray-300">
                         {parsedData.painLevel !== null && (
-                          <div className="flex justify-between">
-                            <span>Pain Level:</span>
-                            <span className="font-medium">{parsedData.painLevel}/10</span>
-                          </div>
+                          <div className="flex justify-between"><span>Pain Level:</span><span className="font-medium text-white">{parsedData.painLevel}/10</span></div>
                         )}
                         {parsedData.bowelCount !== null && (
-                          <div className="flex justify-between">
-                            <span>Bowel Movements:</span>
-                            <span className="font-medium">{parsedData.bowelCount}</span>
-                          </div>
+                          <div className="flex justify-between"><span>Bowel Movements:</span><span className="font-medium text-white">{parsedData.bowelCount}</span></div>
                         )}
                         {parsedData.bristolType !== null && (
-                          <div className="flex justify-between">
-                            <span>Stool Type:</span>
-                            <span className="font-medium">Bristol {parsedData.bristolType}</span>
-                          </div>
+                          <div className="flex justify-between"><span>Stool Type:</span><span className="font-medium text-white">Bristol {parsedData.bristolType}</span></div>
                         )}
                         {parsedData.extras.length > 0 && (
-                          <div className="flex justify-between">
-                            <span>Other Symptoms:</span>
-                            <span className="font-medium">{parsedData.extras.join(', ')}</span>
-                          </div>
+                          <div className="flex justify-between"><span>Other:</span><span className="font-medium text-white">{parsedData.extras.join(', ')}</span></div>
                         )}
                       </div>
                     </div>
                   )}
                   
-                  {/* Action Buttons */}
                   <div className="space-y-3">
                     {transcript && (
                       <button
                         onClick={handleSaveVoice}
-                        className="w-full py-4 bg-gut-600 text-white rounded-xl font-semibold hover:bg-gut-700 transition"
+                        className="w-full py-4 bg-gradient-to-r from-teal-500 to-accent-blue rounded-xl font-semibold text-white transition active:scale-[0.98]"
                       >
                         Save Log ✓
                       </button>
                     )}
                     <button
                       onClick={() => setShowManualForm(true)}
-                      className="w-full py-3 border-2 border-gray-200 text-gray-600 rounded-xl font-medium hover:bg-gray-50 transition"
+                      className="w-full py-3 border border-dark-600 text-gray-400 rounded-xl font-medium hover:bg-dark-700 transition"
                     >
                       Enter Manually Instead
                     </button>
@@ -697,8 +796,8 @@
                   <div className="space-y-6">
                     {/* Pain Level */}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Pain Level: {manualData.painLevel}/10
+                      <label className="block text-sm font-medium text-gray-300 mb-2">
+                        Pain Level: <span className="text-teal-400">{manualData.painLevel}/10</span>
                       </label>
                       <input
                         type="range"
@@ -706,9 +805,9 @@
                         max="10"
                         value={manualData.painLevel}
                         onChange={(e) => setManualData(d => ({ ...d, painLevel: parseInt(e.target.value) }))}
-                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                        className="w-full h-2 bg-dark-600 rounded-lg appearance-none cursor-pointer accent-teal-500"
                       />
-                      <div className="flex justify-between text-xs text-gray-400 mt-1">
+                      <div className="flex justify-between text-xs text-gray-500 mt-1">
                         <span>None</span>
                         <span>Severe</span>
                       </div>
@@ -716,27 +815,23 @@
                     
                     {/* Bowel Count */}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Bowel Movements Today
-                      </label>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">Bowel Movements Today</label>
                       <div className="flex items-center justify-center gap-4">
                         <button 
                           onClick={() => setManualData(d => ({ ...d, bowelCount: Math.max(0, d.bowelCount - 1) }))}
-                          className="w-12 h-12 bg-gray-100 rounded-full text-xl font-bold"
+                          className="w-12 h-12 bg-dark-700 border border-dark-600 rounded-full text-xl font-bold text-gray-300 hover:bg-dark-600 transition"
                         >−</button>
-                        <span className="text-3xl font-bold w-12 text-center">{manualData.bowelCount}</span>
+                        <span className="text-3xl font-bold text-white w-12 text-center">{manualData.bowelCount}</span>
                         <button 
                           onClick={() => setManualData(d => ({ ...d, bowelCount: d.bowelCount + 1 }))}
-                          className="w-12 h-12 bg-gut-100 rounded-full text-xl font-bold text-gut-600"
+                          className="w-12 h-12 bg-teal-500/20 border border-teal-500/50 rounded-full text-xl font-bold text-teal-400 hover:bg-teal-500/30 transition"
                         >+</button>
                       </div>
                     </div>
                     
                     {/* Bristol Type */}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Stool Consistency
-                      </label>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">Stool Consistency</label>
                       <div className="flex gap-1">
                         {BRISTOL_SCALE.map(item => (
                           <button
@@ -745,7 +840,7 @@
                             className={`flex-1 p-2 rounded-lg text-center transition ${
                               manualData.bristolType === item.type 
                                 ? `${item.color} text-white` 
-                                : 'bg-gray-100'
+                                : 'bg-dark-700 text-gray-400 hover:bg-dark-600'
                             }`}
                           >
                             <div className="font-bold">{item.type}</div>
@@ -756,9 +851,7 @@
                     
                     {/* Extra Symptoms */}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Other Symptoms
-                      </label>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">Other Symptoms</label>
                       <div className="flex flex-wrap gap-2">
                         {EXTRA_SYMPTOMS.map(s => (
                           <button
@@ -771,8 +864,8 @@
                             }))}
                             className={`px-3 py-2 rounded-lg text-sm transition ${
                               manualData.extras.includes(s.id)
-                                ? 'bg-orange-100 border-2 border-orange-400'
-                                : 'bg-gray-100 border-2 border-transparent'
+                                ? 'bg-orange-500/20 border border-orange-500/50 text-orange-400'
+                                : 'bg-dark-700 border border-dark-600 text-gray-400 hover:bg-dark-600'
                             }`}
                           >
                             {s.icon} {s.label}
@@ -783,29 +876,26 @@
                     
                     {/* Notes */}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Notes (optional)
-                      </label>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">Notes (optional)</label>
                       <textarea
                         value={manualData.notes}
                         onChange={(e) => setManualData(d => ({ ...d, notes: e.target.value }))}
                         placeholder="Food triggers, stress, etc..."
-                        className="w-full p-3 border-2 border-gray-200 rounded-xl h-20 resize-none focus:border-gut-500 focus:outline-none"
+                        className="w-full p-3 bg-dark-700 border border-dark-600 rounded-xl h-20 resize-none text-white placeholder-gray-500 focus:border-teal-500 focus:outline-none"
                       />
                     </div>
                   </div>
                   
-                  {/* Save Button */}
                   <div className="mt-6 space-y-3">
                     <button
                       onClick={handleSaveManual}
-                      className="w-full py-4 bg-gut-600 text-white rounded-xl font-semibold hover:bg-gut-700 transition"
+                      className="w-full py-4 bg-gradient-to-r from-teal-500 to-accent-blue rounded-xl font-semibold text-white transition active:scale-[0.98]"
                     >
                       Save Log ✓
                     </button>
                     <button
                       onClick={() => setShowManualForm(false)}
-                      className="w-full py-3 text-gray-500 font-medium"
+                      className="w-full py-3 text-gray-500 font-medium hover:text-gray-300 transition"
                     >
                       ← Back to Voice
                     </button>
@@ -818,8 +908,8 @@
       );
     };
     
-    // New Dashboard
-    const Dashboard = ({ user, logs, onCheckin, onViewInsights, onViewReport }) => {
+    // ============ DASHBOARD ============
+    const Dashboard = ({ user, logs, onCheckin }) => {
       const insights = useMemo(() => generateInsights(logs, user), [logs, user]);
       const lastFlare = useMemo(() => findLastFlare(logs), [logs]);
       const [showVoiceModal, setShowVoiceModal] = useState(false);
@@ -833,19 +923,30 @@
         setShowVoiceModal(false);
       };
       
-      // Recommendation based on risk level
-      const getRecommendation = () => {
-        switch (insights.riskLevel) {
-          case 'high':
-            return { icon: '🚨', text: 'Contact your GI, prepare flare kit', color: 'bg-red-50 text-red-800 border-red-200' };
-          case 'medium':
-            return { icon: '⚠️', text: 'Monitor closely, consider reducing stress', color: 'bg-yellow-50 text-yellow-800 border-yellow-200' };
-          default:
-            return { icon: '✅', text: 'Continue tracking, stay hydrated', color: 'bg-green-50 text-green-800 border-green-200' };
+      // Calculate stats
+      const recent = logs.slice(-7);
+      const avgPain = recent.length ? (recent.reduce((s, l) => s + (l.painLevel || 0), 0) / recent.length).toFixed(1) : '—';
+      const avgBM = recent.length ? (recent.reduce((s, l) => s + (l.bowelCount || 0), 0) / recent.length).toFixed(1) : '—';
+      const streak = (() => {
+        let count = 0;
+        const today = new Date();
+        for (let i = 0; i < 30; i++) {
+          const date = new Date(today);
+          date.setDate(date.getDate() - i);
+          const dateStr = date.toISOString().split('T')[0];
+          if (logs.find(l => l.date === dateStr)) count++;
+          else if (i > 0) break;
         }
-      };
+        return count;
+      })();
       
-      const recommendation = getRecommendation();
+      // Risk color
+      const riskColors = {
+        low: { stroke: 'stroke-teal-500', bg: 'from-teal-500/20 to-teal-500/5', text: 'text-teal-400' },
+        medium: { stroke: 'stroke-yellow-500', bg: 'from-yellow-500/20 to-yellow-500/5', text: 'text-yellow-400' },
+        high: { stroke: 'stroke-red-500', bg: 'from-red-500/20 to-red-500/5', text: 'text-red-400' }
+      };
+      const riskStyle = riskColors[insights.riskLevel] || riskColors.low;
       
       // Chart
       useEffect(() => {
@@ -861,30 +962,52 @@
               labels: recentLogs.map(l => new Date(l.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })),
               datasets: [
                 {
-                  label: 'Pain Level',
+                  label: 'Pain',
                   data: recentLogs.map(l => l.painLevel || 0),
-                  borderColor: '#ef4444',
+                  borderColor: '#EF4444',
                   backgroundColor: 'rgba(239, 68, 68, 0.1)',
                   tension: 0.4,
-                  fill: true
+                  fill: true,
+                  borderWidth: 2,
+                  pointRadius: 0
                 },
                 {
-                  label: 'Bowel Count',
+                  label: 'BM Count',
                   data: recentLogs.map(l => l.bowelCount || 0),
-                  borderColor: '#22c55e',
-                  backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                  borderColor: '#00D4AA',
+                  backgroundColor: 'rgba(0, 212, 170, 0.1)',
                   tension: 0.4,
-                  fill: true
+                  fill: true,
+                  borderWidth: 2,
+                  pointRadius: 0
                 }
               ]
             },
             options: {
               responsive: true,
               maintainAspectRatio: false,
-              plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 15 } } },
+              plugins: { 
+                legend: { 
+                  position: 'bottom', 
+                  labels: { 
+                    boxWidth: 12, 
+                    padding: 15,
+                    color: '#9CA3AF',
+                    font: { size: 11 }
+                  } 
+                } 
+              },
               scales: {
-                y: { beginAtZero: true, max: 10, grid: { color: '#f3f4f6' } },
-                x: { grid: { display: false } }
+                y: { 
+                  beginAtZero: true, 
+                  max: 10, 
+                  grid: { color: '#2D2D2D' },
+                  ticks: { color: '#6B7280', font: { size: 10 } }
+                },
+                x: { 
+                  grid: { display: false },
+                  ticks: { color: '#6B7280', font: { size: 10 } }
+                }
               }
             }
           });
@@ -892,15 +1015,8 @@
         return () => { if (chartInstance.current) chartInstance.current.destroy(); };
       }, [logs]);
       
-      const riskColors = {
-        low: 'from-green-400 to-green-500',
-        medium: 'from-yellow-400 to-orange-500',
-        high: 'from-red-400 to-red-500'
-      };
-      
       return (
-        <div className="pb-24">
-          {/* Voice Modal */}
+        <div className="pb-24 bg-dark-900 min-h-screen">
           <VoiceLogModal
             isOpen={showVoiceModal}
             onClose={() => setShowVoiceModal(false)}
@@ -910,166 +1026,124 @@
           />
           
           {/* Header */}
-          <div className="bg-gradient-to-br from-gut-600 to-gut-700 text-white px-6 pt-6 pb-8 rounded-b-3xl">
-            <div className="flex items-center justify-between mb-2">
+          <div className="px-6 pt-6 pb-4">
+            <div className="flex items-center justify-between">
               <div>
-                <h1 className="text-2xl font-bold">GutSync</h1>
-                <p className="text-gut-200 text-sm">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+                <h1 className="text-2xl font-bold gradient-text">GutSync</h1>
+                <p className="text-gray-500 text-sm">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
               </div>
-              <div className="text-4xl">🌿</div>
+              <div className="w-10 h-10 bg-gradient-to-br from-teal-500 to-accent-purple rounded-xl flex items-center justify-center">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                  <path d="M6 12 Q12 6 18 12 Q12 18 6 12" />
+                </svg>
+              </div>
             </div>
           </div>
           
-          {/* ===== TOP SECTION: Flare Info ===== */}
-          <div className="px-4 -mt-6">
-            <div className="bg-white rounded-2xl shadow-lg p-4 border border-gray-100">
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                {/* Last Flare */}
-                <div className="text-center p-3 bg-gray-50 rounded-xl">
-                  <div className="text-sm text-gray-500 mb-1">Last Flare</div>
-                  {lastFlare ? (
-                    <>
-                      <div className="text-2xl font-bold text-gray-800">{lastFlare.daysAgo} days</div>
-                      <div className="text-xs text-gray-400">{new Date(lastFlare.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
-                    </>
-                  ) : (
-                    <div className="text-lg font-medium text-green-600">None recorded 🎉</div>
-                  )}
+          {/* Main Flare Risk Ring */}
+          <div className="px-6 mb-6">
+            <div className="bg-dark-800 rounded-3xl p-6 border border-dark-700">
+              <div className="flex items-center justify-between">
+                {/* Ring */}
+                <div className="flex-shrink-0">
+                  <RingProgress
+                    percent={insights.riskPercent || 0}
+                    size={120}
+                    strokeWidth={10}
+                    colorClass={riskStyle.stroke}
+                    label={insights.riskPercent !== null ? `${insights.riskPercent}%` : '—'}
+                    sublabel="Flare Risk"
+                  />
                 </div>
                 
-                {/* Flare Risk */}
-                <div className="text-center p-3 bg-gray-50 rounded-xl">
-                  <div className="text-sm text-gray-500 mb-1">Flare Risk (24-72h)</div>
-                  {insights.riskPercent !== null ? (
-                    <>
-                      <div className={`text-2xl font-bold ${
-                        insights.riskLevel === 'low' ? 'text-green-600' :
-                        insights.riskLevel === 'medium' ? 'text-yellow-600' : 'text-red-600'
-                      }`}>
-                        {insights.riskPercent}%
-                      </div>
-                      <div className="text-xs text-gray-400 capitalize">{insights.riskLevel} risk</div>
-                    </>
-                  ) : (
-                    <div className="text-lg font-medium text-gray-400">Calculating...</div>
-                  )}
+                {/* Info */}
+                <div className="flex-1 ml-6">
+                  <div className={`text-sm font-medium ${riskStyle.text} mb-1`}>
+                    {insights.riskLevel ? insights.riskLevel.charAt(0).toUpperCase() + insights.riskLevel.slice(1) + ' Risk' : 'Calculating...'}
+                  </div>
+                  <p className="text-gray-400 text-sm mb-3">{insights.details}</p>
+                  
+                  {/* Last Flare */}
+                  <div className="flex items-center gap-2 text-xs text-gray-500">
+                    <span>Last flare:</span>
+                    <span className="text-gray-300 font-medium">
+                      {lastFlare ? `${lastFlare.daysAgo} days ago` : 'None recorded'}
+                    </span>
+                  </div>
                 </div>
               </div>
               
               {/* Recommendation */}
-              <div className={`p-3 rounded-xl border ${recommendation.color}`}>
-                <div className="flex items-center gap-2">
-                  <span className="text-xl">{recommendation.icon}</span>
-                  <span className="font-medium text-sm">{recommendation.text}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          {/* ===== CENTER SECTION: Voice Log Button ===== */}
-          <div className="px-4 mt-6 mb-6">
-            <div className="text-center">
-              <button
-                onClick={() => setShowVoiceModal(true)}
-                className={`relative w-36 h-36 rounded-full mx-auto flex flex-col items-center justify-center transition-all shadow-lg hover:shadow-xl ${
-                  todayLog 
-                    ? 'bg-gradient-to-br from-gray-400 to-gray-500' 
-                    : 'bg-gradient-to-br from-gut-500 to-gut-600 hover:from-gut-600 hover:to-gut-700'
-                }`}
-              >
-                {!todayLog && (
-                  <div className="absolute inset-0 rounded-full bg-gut-400 voice-btn-ring opacity-50" />
-                )}
-                <span className="text-5xl mb-1">🎤</span>
-                <span className="text-white text-sm font-medium">
-                  {todayLog ? 'Edit Log' : 'Log Symptoms'}
-                </span>
-              </button>
-              <p className="text-gray-500 text-sm mt-3">
-                {todayLog ? 'Tap to update today\'s log' : 'Tap and tell me how you\'re feeling'}
-              </p>
-            </div>
-          </div>
-          
-          {/* ===== BOTTOM SECTION: Recent Logs & Stats ===== */}
-          
-          {/* Quick Stats */}
-          <div className="px-4 mb-4">
-            <div className="grid grid-cols-3 gap-3">
-              {(() => {
-                const recent = logs.slice(-7);
-                const avgPain = recent.length ? (recent.reduce((s, l) => s + (l.painLevel || 0), 0) / recent.length).toFixed(1) : '—';
-                const avgBM = recent.length ? (recent.reduce((s, l) => s + (l.bowelCount || 0), 0) / recent.length).toFixed(1) : '—';
-                const streak = (() => {
-                  let count = 0;
-                  const today = new Date();
-                  for (let i = 0; i < 30; i++) {
-                    const date = new Date(today);
-                    date.setDate(date.getDate() - i);
-                    const dateStr = date.toISOString().split('T')[0];
-                    if (logs.find(l => l.date === dateStr)) count++;
-                    else if (i > 0) break;
-                  }
-                  return count;
-                })();
-                
-                return (
-                  <>
-                    <div className="bg-white rounded-xl p-3 text-center border border-gray-100 shadow-sm">
-                      <div className="text-2xl font-bold text-gut-600">{streak}</div>
-                      <div className="text-xs text-gray-500">Day Streak 🔥</div>
-                    </div>
-                    <div className="bg-white rounded-xl p-3 text-center border border-gray-100 shadow-sm">
-                      <div className="text-2xl font-bold text-gray-800">{avgPain}</div>
-                      <div className="text-xs text-gray-500">Avg Pain (7d)</div>
-                    </div>
-                    <div className="bg-white rounded-xl p-3 text-center border border-gray-100 shadow-sm">
-                      <div className="text-2xl font-bold text-gray-800">{avgBM}</div>
-                      <div className="text-xs text-gray-500">Avg BM (7d)</div>
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
-          </div>
-          
-          {/* Recent Logs */}
-          <div className="px-4">
-            <h2 className="font-semibold text-gray-900 mb-3">Recent Logs</h2>
-            <div className="space-y-2">
-              {logs.slice(-5).reverse().map((log, i) => (
-                <div key={i} className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm flex items-center justify-between">
-                  <div>
-                    <div className="font-medium text-gray-900">
-                      {new Date(log.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                    </div>
-                    <div className="text-sm text-gray-500">
-                      Pain: {log.painLevel}/10 • BM: {log.bowelCount} • Bristol: {log.bristolType || '—'}
-                    </div>
+              {insights.recommendation && (
+                <div className={`mt-4 p-3 rounded-xl bg-gradient-to-r ${riskStyle.bg} border border-dark-600`}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">{insights.riskLevel === 'high' ? '🚨' : insights.riskLevel === 'medium' ? '⚠️' : '✅'}</span>
+                    <span className="text-sm text-gray-300">{insights.recommendation}</span>
                   </div>
-                  <div className="text-2xl">
-                    {log.painLevel <= 3 ? '🟢' : log.painLevel <= 6 ? '🟡' : '🔴'}
-                  </div>
-                </div>
-              ))}
-              {logs.length === 0 && (
-                <div className="text-center py-8 text-gray-400 bg-white rounded-xl border border-gray-100">
-                  No logs yet. Start tracking!
                 </div>
               )}
             </div>
           </div>
           
-          {/* Trend Chart (collapsible) */}
-          <div className="px-4 mt-6">
-            <h2 className="font-semibold text-gray-900 mb-3">14-Day Trends</h2>
-            <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+          {/* Voice Log Button */}
+          <div className="px-6 mb-6">
+            <button
+              onClick={() => setShowVoiceModal(true)}
+              className={`w-full p-6 rounded-2xl flex items-center justify-between transition ${
+                todayLog 
+                  ? 'bg-dark-800 border border-dark-700' 
+                  : 'bg-gradient-to-r from-teal-500/20 to-accent-purple/20 border border-teal-500/30 glow-teal'
+              }`}
+            >
+              <div className="flex items-center gap-4">
+                <div className={`w-14 h-14 rounded-full flex items-center justify-center ${
+                  todayLog ? 'bg-dark-700' : 'bg-gradient-to-br from-teal-500 to-accent-blue'
+                }`}>
+                  <span className="text-2xl">🎤</span>
+                </div>
+                <div className="text-left">
+                  <div className={`font-semibold ${todayLog ? 'text-gray-300' : 'text-white'}`}>
+                    {todayLog ? 'Update Today\'s Log' : 'Log Symptoms'}
+                  </div>
+                  <div className="text-sm text-gray-500">
+                    {todayLog ? 'Tap to edit your entry' : 'Tap to speak or type'}
+                  </div>
+                </div>
+              </div>
+              <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+          
+          {/* Stats Row */}
+          <div className="px-6 mb-6">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-dark-800 rounded-2xl p-4 text-center border border-dark-700">
+                <div className="text-2xl font-bold text-teal-400">{streak}</div>
+                <div className="text-xs text-gray-500 mt-1">Day Streak 🔥</div>
+              </div>
+              <div className="bg-dark-800 rounded-2xl p-4 text-center border border-dark-700">
+                <div className="text-2xl font-bold text-white">{avgPain}</div>
+                <div className="text-xs text-gray-500 mt-1">Avg Pain (7d)</div>
+              </div>
+              <div className="bg-dark-800 rounded-2xl p-4 text-center border border-dark-700">
+                <div className="text-2xl font-bold text-white">{avgBM}</div>
+                <div className="text-xs text-gray-500 mt-1">Avg BM (7d)</div>
+              </div>
+            </div>
+          </div>
+          
+          {/* Trend Chart */}
+          <div className="px-6 mb-6">
+            <h2 className="font-semibold text-white mb-3">14-Day Trends</h2>
+            <div className="bg-dark-800 rounded-2xl p-4 border border-dark-700">
               {logs.length > 0 ? (
                 <div className="h-48">
                   <canvas ref={chartRef}></canvas>
                 </div>
               ) : (
-                <div className="h-32 flex items-center justify-center text-gray-400">
+                <div className="h-32 flex items-center justify-center text-gray-500">
                   <div className="text-center">
                     <div className="text-3xl mb-2">📊</div>
                     <p>Log symptoms to see trends</p>
@@ -1078,129 +1152,154 @@
               )}
             </div>
           </div>
+          
+          {/* Recent Logs */}
+          <div className="px-6">
+            <h2 className="font-semibold text-white mb-3">Recent Logs</h2>
+            <div className="space-y-2">
+              {logs.slice(-5).reverse().map((log, i) => (
+                <div key={i} className="bg-dark-800 rounded-xl p-4 border border-dark-700 flex items-center justify-between">
+                  <div>
+                    <div className="font-medium text-white">
+                      {new Date(log.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      Pain: {log.painLevel}/10 • BM: {log.bowelCount} • Bristol: {log.bristolType || '—'}
+                    </div>
+                  </div>
+                  <div className={`w-3 h-3 rounded-full ${
+                    log.painLevel <= 3 ? 'bg-teal-500' : log.painLevel <= 6 ? 'bg-yellow-500' : 'bg-red-500'
+                  }`} />
+                </div>
+              ))}
+              {logs.length === 0 && (
+                <div className="text-center py-8 text-gray-500 bg-dark-800 rounded-xl border border-dark-700">
+                  No logs yet. Start tracking!
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       );
     };
     
-    // Insights Screen
+    // ============ INSIGHTS SCREEN ============
     const InsightsScreen = ({ logs, user, onBack }) => {
       const insights = generateInsights(logs, user);
       const recent = logs.slice(-7);
       
-      // Calculate various metrics
       const avgPain = recent.length ? (recent.reduce((s, l) => s + (l.painLevel || 0), 0) / recent.length).toFixed(1) : 0;
       const avgBowel = recent.length ? (recent.reduce((s, l) => s + (l.bowelCount || 0), 0) / recent.length).toFixed(1) : 0;
       const avgHBI = recent.length ? (recent.reduce((s, l) => s + (l.hbi || 0), 0) / recent.length).toFixed(1) : 0;
       const looseDays = recent.filter(l => l.bristolType >= 6).length;
       
-      // Find patterns
       const extraCounts = {};
       recent.forEach(l => (l.extras || []).forEach(e => { extraCounts[e] = (extraCounts[e] || 0) + 1; }));
       const topExtras = Object.entries(extraCounts).sort((a, b) => b[1] - a[1]).slice(0, 3);
       
+      const riskColors = {
+        low: { ring: 'stroke-teal-500', text: 'text-teal-400', bg: 'bg-teal-500' },
+        medium: { ring: 'stroke-yellow-500', text: 'text-yellow-400', bg: 'bg-yellow-500' },
+        high: { ring: 'stroke-red-500', text: 'text-red-400', bg: 'bg-red-500' }
+      };
+      const riskStyle = riskColors[insights.riskLevel] || riskColors.low;
+      
       return (
-        <div className="min-h-screen bg-gray-50 pb-24">
-          <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center">
-            <button onClick={onBack} className="text-gut-600 font-medium mr-4">← Back</button>
-            <h2 className="font-semibold">AI Insights</h2>
+        <div className="min-h-screen bg-dark-900 pb-24">
+          <div className="bg-dark-800 border-b border-dark-700 px-4 py-3 flex items-center">
+            <button onClick={onBack} className="text-teal-400 font-medium mr-4">← Back</button>
+            <h2 className="font-semibold text-white">AI Insights</h2>
           </div>
           
           <div className="p-4 space-y-4">
             {/* Flare Risk */}
-            <div className="bg-white rounded-xl p-4 border border-gray-200">
-              <h3 className="font-semibold text-gray-900 mb-3">Flare Risk Prediction</h3>
-              <div className="flex items-center gap-4">
-                <div className={`w-20 h-20 rounded-full flex items-center justify-center text-white text-xl font-bold ${
-                  insights.riskLevel === 'low' ? 'bg-green-500' : 
-                  insights.riskLevel === 'medium' ? 'bg-yellow-500' : 
-                  insights.riskLevel === 'high' ? 'bg-red-500' : 'bg-gray-400'
-                }`}>
-                  {insights.riskPercent !== null ? `${insights.riskPercent}%` : '—'}
-                </div>
+            <div className="bg-dark-800 rounded-2xl p-6 border border-dark-700">
+              <h3 className="font-semibold text-white mb-4">Flare Risk Prediction</h3>
+              <div className="flex items-center gap-6">
+                <RingProgress
+                  percent={insights.riskPercent || 0}
+                  size={100}
+                  strokeWidth={8}
+                  colorClass={riskStyle.ring}
+                  label={insights.riskPercent !== null ? `${insights.riskPercent}%` : '—'}
+                />
                 <div className="flex-1">
-                  <div className="font-medium text-gray-900">
+                  <div className={`font-medium ${riskStyle.text}`}>
                     {insights.riskLevel ? insights.riskLevel.charAt(0).toUpperCase() + insights.riskLevel.slice(1) + ' Risk' : 'Calculating...'}
                   </div>
-                  <p className="text-sm text-gray-500">{insights.details}</p>
-                  <p className="text-xs text-gray-400 mt-1">Prediction window: next 24-72 hours</p>
+                  <p className="text-sm text-gray-400 mt-1">{insights.details}</p>
+                  <p className="text-xs text-gray-500 mt-2">Prediction window: next 24-72 hours</p>
                 </div>
               </div>
             </div>
             
             {/* Weekly Summary */}
-            <div className="bg-white rounded-xl p-4 border border-gray-200">
-              <h3 className="font-semibold text-gray-900 mb-3">7-Day Summary</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="text-center p-3 bg-gray-50 rounded-lg">
-                  <div className="text-2xl font-bold text-gray-900">{avgPain}</div>
+            <div className="bg-dark-800 rounded-2xl p-4 border border-dark-700">
+              <h3 className="font-semibold text-white mb-3">7-Day Summary</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="text-center p-3 bg-dark-700 rounded-xl">
+                  <div className="text-2xl font-bold text-white">{avgPain}</div>
                   <div className="text-sm text-gray-500">Avg Pain</div>
                 </div>
-                <div className="text-center p-3 bg-gray-50 rounded-lg">
-                  <div className="text-2xl font-bold text-gray-900">{avgBowel}</div>
+                <div className="text-center p-3 bg-dark-700 rounded-xl">
+                  <div className="text-2xl font-bold text-white">{avgBowel}</div>
                   <div className="text-sm text-gray-500">Avg BM/Day</div>
                 </div>
-                <div className="text-center p-3 bg-gray-50 rounded-lg">
-                  <div className="text-2xl font-bold text-gray-900">{looseDays}</div>
+                <div className="text-center p-3 bg-dark-700 rounded-xl">
+                  <div className="text-2xl font-bold text-white">{looseDays}</div>
                   <div className="text-sm text-gray-500">Loose Stool Days</div>
                 </div>
-                <div className="text-center p-3 bg-gray-50 rounded-lg">
-                  <div className="text-2xl font-bold text-gray-900">{avgHBI}</div>
+                <div className="text-center p-3 bg-dark-700 rounded-xl">
+                  <div className="text-2xl font-bold text-white">{avgHBI}</div>
                   <div className="text-sm text-gray-500">Avg HBI Score</div>
                 </div>
               </div>
             </div>
             
             {/* Pattern Detection */}
-            <div className="bg-white rounded-xl p-4 border border-gray-200">
-              <h3 className="font-semibold text-gray-900 mb-3">Detected Patterns</h3>
+            <div className="bg-dark-800 rounded-2xl p-4 border border-dark-700">
+              <h3 className="font-semibold text-white mb-3">Detected Patterns</h3>
               {topExtras.length > 0 ? (
                 <div className="space-y-2">
                   {topExtras.map(([id, count]) => {
                     const symptom = EXTRA_SYMPTOMS.find(s => s.id === id);
                     return symptom ? (
-                      <div key={id} className="flex items-center justify-between p-2 bg-orange-50 rounded-lg">
-                        <span>{symptom.icon} {symptom.label}</span>
-                        <span className="text-sm text-gray-500">{count} days this week</span>
+                      <div key={id} className="flex items-center justify-between p-3 bg-orange-500/10 rounded-xl border border-orange-500/30">
+                        <span className="text-gray-300">{symptom.icon} {symptom.label}</span>
+                        <span className="text-sm text-gray-500">{count} days</span>
                       </div>
                     ) : null;
                   })}
-                  <p className="text-sm text-gray-500 mt-2">
-                    💡 These symptoms appeared frequently. Track food and stress to find correlations.
-                  </p>
                 </div>
               ) : (
-                <p className="text-gray-500">Not enough data to detect patterns yet. Keep logging!</p>
+                <p className="text-gray-500">Not enough data to detect patterns yet.</p>
               )}
             </div>
             
-            {/* Mock Integrations */}
-            <div className="bg-white rounded-xl p-4 border border-gray-200">
-              <h3 className="font-semibold text-gray-900 mb-3">Health Integrations</h3>
+            {/* Integrations */}
+            <div className="bg-dark-800 rounded-2xl p-4 border border-dark-700">
+              <h3 className="font-semibold text-white mb-3">Health Integrations</h3>
               <div className="space-y-3">
-                <div className="flex items-center justify-between p-3 border border-dashed border-gray-300 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">⌚</span>
-                    <div>
-                      <div className="font-medium">Apple Health</div>
-                      <div className="text-sm text-gray-500">HRV, Sleep, Activity</div>
+                {[
+                  { icon: '❤️', name: 'Apple Health', desc: 'HRV, Sleep, Activity' },
+                  { icon: '💪', name: 'WHOOP', desc: 'Recovery Score, Strain' },
+                  { icon: '💍', name: 'Oura Ring', desc: 'Readiness, Sleep Quality' }
+                ].map((item, i) => (
+                  <div key={i} className="flex items-center justify-between p-3 border border-dark-600 rounded-xl hover:border-dark-500 transition">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">{item.icon}</span>
+                      <div>
+                        <div className="font-medium text-gray-300">{item.name}</div>
+                        <div className="text-sm text-gray-500">{item.desc}</div>
+                      </div>
                     </div>
+                    <button className="text-teal-400 font-medium text-sm">Connect</button>
                   </div>
-                  <button className="text-gut-600 font-medium text-sm">Connect</button>
-                </div>
-                <div className="flex items-center justify-between p-3 border border-dashed border-gray-300 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">💪</span>
-                    <div>
-                      <div className="font-medium">WHOOP</div>
-                      <div className="text-sm text-gray-500">Recovery Score, Strain</div>
-                    </div>
-                  </div>
-                  <button className="text-gut-600 font-medium text-sm">Connect</button>
-                </div>
+                ))}
               </div>
-              <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-                <p className="text-sm text-blue-800">
-                  <strong>Coming Soon:</strong> Connect wearables to detect flares 24-72 hours earlier using HRV and sleep patterns.
+              <div className="mt-4 p-3 bg-accent-purple/10 rounded-xl border border-accent-purple/30">
+                <p className="text-sm text-gray-300">
+                  <strong className="text-accent-purple">Coming Soon:</strong> Connect wearables to detect flares 24-72 hours earlier using HRV and sleep patterns.
                 </p>
               </div>
             </div>
@@ -1209,7 +1308,7 @@
       );
     };
     
-    // Doctor Report Screen
+    // ============ DOCTOR REPORT ============
     const DoctorReport = ({ logs, user, onBack }) => {
       const [dateRange, setDateRange] = useState(30);
       const [generating, setGenerating] = useState(false);
@@ -1274,8 +1373,6 @@ Patient Average: ${stats?.avgHBI || 0}
 
 ───────────────────────────────────────────────────────────────
 Generated by GutSync - AI-Powered Crohn's Tracker
-This report is for informational purposes and should be 
-reviewed with your healthcare provider.
         `.trim();
         
         setTimeout(() => {
@@ -1291,16 +1388,16 @@ reviewed with your healthcare provider.
       };
       
       return (
-        <div className="min-h-screen bg-gray-50 pb-24">
-          <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center">
-            <button onClick={onBack} className="text-gut-600 font-medium mr-4">← Back</button>
-            <h2 className="font-semibold">Doctor Report</h2>
+        <div className="min-h-screen bg-dark-900 pb-24">
+          <div className="bg-dark-800 border-b border-dark-700 px-4 py-3 flex items-center">
+            <button onClick={onBack} className="text-teal-400 font-medium mr-4">← Back</button>
+            <h2 className="font-semibold text-white">Doctor Report</h2>
           </div>
           
           <div className="p-4 space-y-4">
             {/* Date Range */}
-            <div className="bg-white rounded-xl p-4 border border-gray-200">
-              <h3 className="font-semibold text-gray-900 mb-3">Report Period</h3>
+            <div className="bg-dark-800 rounded-2xl p-4 border border-dark-700">
+              <h3 className="font-semibold text-white mb-3">Report Period</h3>
               <div className="flex gap-2">
                 {[7, 14, 30, 90].map(d => (
                   <button
@@ -1308,8 +1405,8 @@ reviewed with your healthcare provider.
                     onClick={() => setDateRange(d)}
                     className={`flex-1 py-2 rounded-lg font-medium transition ${
                       dateRange === d 
-                        ? 'bg-gut-600 text-white' 
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        ? 'bg-teal-500 text-white' 
+                        : 'bg-dark-700 text-gray-400 hover:bg-dark-600'
                     }`}
                   >
                     {d}d
@@ -1320,66 +1417,42 @@ reviewed with your healthcare provider.
             
             {/* Preview */}
             {stats ? (
-              <div className="bg-white rounded-xl p-4 border border-gray-200">
-                <h3 className="font-semibold text-gray-900 mb-3">Report Preview</h3>
+              <div className="bg-dark-800 rounded-2xl p-4 border border-dark-700">
+                <h3 className="font-semibold text-white mb-3">Report Preview</h3>
                 <div className="space-y-3">
-                  <div className="flex justify-between py-2 border-b border-gray-100">
-                    <span className="text-gray-600">Logs Recorded</span>
-                    <span className="font-medium">{stats.totalLogs}</span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b border-gray-100">
-                    <span className="text-gray-600">Avg Pain Level</span>
-                    <span className="font-medium">{stats.avgPain}/10</span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b border-gray-100">
-                    <span className="text-gray-600">Avg BM/Day</span>
-                    <span className="font-medium">{stats.avgBowel}</span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b border-gray-100">
-                    <span className="text-gray-600">Avg HBI Score</span>
-                    <span className={`font-medium ${
-                      stats.avgHBI < 5 ? 'text-green-600' : 
-                      stats.avgHBI < 8 ? 'text-yellow-600' : 'text-red-600'
-                    }`}>
-                      {stats.avgHBI} ({stats.avgHBI < 5 ? 'Remission' : stats.avgHBI < 8 ? 'Mild' : 'Moderate'})
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b border-gray-100">
-                    <span className="text-gray-600">Loose Stool Days</span>
-                    <span className="font-medium">{stats.looseDays}</span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b border-gray-100">
-                    <span className="text-gray-600">High Pain Days</span>
-                    <span className="font-medium">{stats.highPainDays}</span>
-                  </div>
-                  {stats.adherence !== null && (
-                    <div className="flex justify-between py-2">
-                      <span className="text-gray-600">Med Adherence</span>
-                      <span className={`font-medium ${stats.adherence >= 80 ? 'text-green-600' : 'text-orange-600'}`}>
-                        {stats.adherence}%
-                      </span>
+                  {[
+                    ['Logs Recorded', stats.totalLogs],
+                    ['Avg Pain Level', `${stats.avgPain}/10`],
+                    ['Avg BM/Day', stats.avgBowel],
+                    ['Avg HBI Score', <span className={stats.avgHBI < 5 ? 'text-teal-400' : stats.avgHBI < 8 ? 'text-yellow-400' : 'text-red-400'}>{stats.avgHBI}</span>],
+                    ['Loose Stool Days', stats.looseDays],
+                    ['High Pain Days', stats.highPainDays]
+                  ].map(([label, value], i) => (
+                    <div key={i} className="flex justify-between py-2 border-b border-dark-700 last:border-0">
+                      <span className="text-gray-400">{label}</span>
+                      <span className="font-medium text-white">{value}</span>
                     </div>
-                  )}
+                  ))}
                 </div>
               </div>
             ) : (
-              <div className="bg-white rounded-xl p-8 border border-gray-200 text-center text-gray-500">
+              <div className="bg-dark-800 rounded-2xl p-8 border border-dark-700 text-center text-gray-500">
                 <div className="text-4xl mb-2">📊</div>
                 <p>No data in selected period</p>
               </div>
             )}
             
             {/* HBI Info */}
-            <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
-              <h4 className="font-semibold text-blue-900 mb-2">About Harvey-Bradshaw Index</h4>
-              <p className="text-sm text-blue-800 mb-2">
-                The HBI is a simplified clinical index used by gastroenterologists to assess Crohn's disease activity.
+            <div className="bg-accent-blue/10 rounded-2xl p-4 border border-accent-blue/30">
+              <h4 className="font-semibold text-white mb-2">Harvey-Bradshaw Index</h4>
+              <p className="text-sm text-gray-400 mb-2">
+                Used by gastroenterologists to assess Crohn's disease activity.
               </p>
-              <div className="text-sm text-blue-700 space-y-1">
-                <div>• &lt;5: Remission</div>
-                <div>• 5-7: Mild disease</div>
-                <div>• 8-16: Moderate disease</div>
-                <div>• &gt;16: Severe disease</div>
+              <div className="text-sm text-gray-500 space-y-1">
+                <div>• &lt;5: <span className="text-teal-400">Remission</span></div>
+                <div>• 5-7: <span className="text-yellow-400">Mild disease</span></div>
+                <div>• 8-16: <span className="text-orange-400">Moderate disease</span></div>
+                <div>• &gt;16: <span className="text-red-400">Severe disease</span></div>
               </div>
             </div>
             
@@ -1387,26 +1460,22 @@ reviewed with your healthcare provider.
             <button
               onClick={generatePDF}
               disabled={!stats || generating}
-              className="w-full py-4 bg-gut-600 text-white rounded-xl font-semibold hover:bg-gut-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full py-4 bg-gradient-to-r from-teal-500 to-accent-blue rounded-xl font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed transition active:scale-[0.98]"
             >
-              {generating ? (
-                <>⏳ Generating...</>
-              ) : (
-                <>📥 Download Report</>
-              )}
+              {generating ? '⏳ Generating...' : '📥 Download Report'}
             </button>
             
             <p className="text-sm text-gray-500 text-center">
-              Share this report with your GI doctor to review your symptom patterns.
+              Share this report with your GI doctor
             </p>
           </div>
         </div>
       );
     };
     
-    // Bottom Navigation
+    // ============ BOTTOM NAVIGATION ============
     const BottomNav = ({ active, onNavigate }) => (
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 safe-area-bottom">
+      <div className="fixed bottom-0 left-0 right-0 bg-dark-800 border-t border-dark-700 safe-area-bottom">
         <div className="flex justify-around py-2">
           {[
             { id: 'dashboard', icon: '🏠', label: 'Home' },
@@ -1416,8 +1485,8 @@ reviewed with your healthcare provider.
             <button
               key={item.id}
               onClick={() => onNavigate(item.id)}
-              className={`flex flex-col items-center py-2 px-4 ${
-                active === item.id ? 'text-gut-600' : 'text-gray-400'
+              className={`flex flex-col items-center py-2 px-4 transition ${
+                active === item.id ? 'text-teal-400' : 'text-gray-500 hover:text-gray-300'
               }`}
             >
               <span className="text-xl">{item.icon}</span>
@@ -1428,12 +1497,18 @@ reviewed with your healthcare provider.
       </div>
     );
     
-    // Main App
+    // ============ MAIN APP ============
     const App = () => {
+      const [isWelcomed, setIsWelcomed] = useState(() => loadData(STORAGE_KEYS.WELCOMED, false));
       const [isOnboarded, setIsOnboarded] = useState(() => loadData(STORAGE_KEYS.ONBOARDED, false));
       const [user, setUser] = useState(() => loadData(STORAGE_KEYS.USER, null));
       const [logs, setLogs] = useState(() => loadData(STORAGE_KEYS.LOGS, []));
       const [screen, setScreen] = useState('dashboard');
+      
+      const handleWelcomeComplete = () => {
+        saveData(STORAGE_KEYS.WELCOMED, true);
+        setIsWelcomed(true);
+      };
       
       const handleOnboardingComplete = (userData, demoLogs) => {
         setUser(userData);
@@ -1455,19 +1530,24 @@ reviewed with your healthcare provider.
         saveData(STORAGE_KEYS.LOGS, newLogs);
       };
       
+      // Show Welcome screen first
+      if (!isWelcomed) {
+        return <WelcomeScreen onGetStarted={handleWelcomeComplete} />;
+      }
+      
+      // Then Onboarding
       if (!isOnboarded) {
         return <OnboardingFlow onComplete={handleOnboardingComplete} />;
       }
       
+      // Main app
       return (
-        <div className="min-h-screen bg-gray-50">
+        <div className="min-h-screen bg-dark-900">
           {screen === 'dashboard' && (
             <Dashboard 
               user={user} 
               logs={logs} 
               onCheckin={handleSaveLog}
-              onViewInsights={() => setScreen('insights')}
-              onViewReport={() => setScreen('report')}
             />
           )}
           
